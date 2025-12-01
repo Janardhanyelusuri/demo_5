@@ -7,7 +7,7 @@ import hashlib
 from datetime import datetime, timedelta
 import logging
 from psycopg2 import sql
-from typing import Optional # Added Optional type hint for clarity
+from typing import Optional, Dict, Any, List # Added type hints
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -356,79 +356,39 @@ def generate_s3_prompt(bucket_data: dict, monthly_forecast: float, annual_foreca
 
     # Guard clause for missing data
     if not has_pricing or not has_metrics or bucket_name == "Unknown" or bucket_name == "None":
-        return f"""AWS S3 FinOps. Analyze {bucket_name} | Region: {region} | {start_date} to {end_date} ({duration_days}d) | Cost: ${billed_cost:.2f}
+        return f"""AWS S3 {bucket_name} | {region} | {duration_days}d | ${billed_cost:.2f}
+ISSUE: {'No pricing' if not has_pricing else 'No metrics' if not has_metrics else 'Unknown bucket'}
+OUTPUT: {{"recommendations": {{"effective_recommendation": {{"text": "Cannot recommend", "explanation": "Insufficient data", "saving_pct": 0}}, "additional_recommendation": [], "base_of_recommendations": {metrics_list_str}}}, "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}}, "anomalies": [], "contract_deal": {{"assessment": "unknown", "for_sku": "S3 Standard", "reason": "Insufficient data", "monthly_saving_pct": 0, "annual_saving_pct": 0}}}}"""
 
-AVAILABLE METRICS:
+    prompt = f"""AWS S3 {bucket_name} | {region} | {duration_days}d | ${monthly_forecast:.2f}/mo
+
+METRICS:
 {metrics_text}
 
-PRICING OPTIONS:
-{pricing_context}
-
-ISSUE: {'Missing pricing data' if not has_pricing else 'Missing metrics data' if not has_metrics else 'Unknown bucket'}
-
-OUTPUT (JSON only):
-{{
-  "recommendations": {{
-    "effective_recommendation": {{"text": "Unable to provide recommendations", "explanation": "{'Pricing data unavailable for storage class analysis' if not has_pricing else 'No metrics available for resource analysis' if not has_metrics else 'Bucket information not available'}", "saving_pct": 0}},
-    "additional_recommendation": [],
-    "base_of_recommendations": {metrics_list_str}
-  }},
-  "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}},
-  "anomalies": [],
-  "contract_deal": {{"assessment": "unknown", "for_sku": "S3 Standard", "reason": "Insufficient data for assessment", "monthly_saving_pct": 0, "annual_saving_pct": 0}}
-}}"""
-
-    prompt = f"""AWS S3 FinOps. Analyze {bucket_name} | Region: {region} | {start_date} to {end_date} ({duration_days}d)
-Current Cost: ${billed_cost:.2f} for {duration_days}d | Forecast: ${monthly_forecast:.2f}/mo, ${annual_forecast:.2f}/yr
-
-AVAILABLE METRICS (MUST USE):
-{metrics_text}
-
-PRICING OPTIONS:
+PRICING:
 {pricing_context}
 
 RULES:
-1. MUST cite exact metrics above with units (e.g., "BucketSizeBytes: Avg=150.2GB, Max=200.5GB")
-2. MUST use monthly forecast ${monthly_forecast:.2f} for savings calculations
-3. Each recommendation MUST be unique (storage class change vs lifecycle policy vs versioning vs replication)
-4. Calculate: savings_pct = ((current_monthly_forecast - new_monthly_cost) / current_monthly_forecast) * 100
-5. Anomalies: MUST use exact MaxDate from metrics, explain why value is unusual
-6. Contract assessment: Compare current monthly cost vs alternatives, explain good/bad
+1. Cite metrics with units
+2. Alt class cost = class_price_per_GB × capacity_GB
+3. savings_pct = (forecast - alt_cost) / forecast × 100
+4. Each rec unique type (class/lifecycle/versioning/replication)
+5. Anomalies: MaxDate + reason
+6. contract_deal: reserved capacity vs on-demand for Standard class only
 
-OUTPUT (JSON only, NO markdown):
+OUTPUT (JSON):
 {{
   "recommendations": {{
-    "effective_recommendation": {{
-      "text": "Primary action with exact storage class from PRICING",
-      "explanation": "Based on [cite exact metrics with units from AVAILABLE METRICS] over {duration_days} days, current monthly forecast is ${monthly_forecast:.2f}. [Specific storage class from PRICING] costs [exact price]/GB/mo for [capacity]GB, saving [exact amount].",
-      "saving_pct": <number calculated from monthly forecast>
-    }},
+    "effective_recommendation": {{"text": "Action", "explanation": "Metrics + cost calc", "saving_pct": <num>}},
     "additional_recommendation": [
-      {{
-        "text": "DIFFERENT recommendation type (e.g., Lifecycle policy to transition old data)",
-        "explanation": "With [cite metrics], moving objects older than 90 days to Glacier at [price from PRICING] saves [amount]/mo.",
-        "saving_pct": <number>
-      }},
-      {{
-        "text": "THIRD unique recommendation (e.g., Disable versioning if not needed)",
-        "explanation": "Given [storage metrics], versioning adds [%] overhead. Disabling saves ~[%] on storage costs.",
-        "saving_pct": <number>
-      }}
+      {{"text": "Unique type", "explanation": "Metrics + cost calc", "saving_pct": <num>}},
+      {{"text": "Another unique type", "explanation": "Metrics + cost calc", "saving_pct": <num>}}
     ],
     "base_of_recommendations": {metrics_list_str}
   }},
   "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}},
-  "anomalies": [
-    {{"metric_name": "Exact name from AVAILABLE METRICS", "timestamp": "Exact MaxDate from metrics", "value": <exact Max value from metrics>, "reason_short": "Explain why this max value is unusual (spike/drop/sustained high)"}},
-    {{"metric_name": "Another metric name", "timestamp": "Its MaxDate", "value": <its Max value>, "reason_short": "Why unusual for this resource type"}}
-  ],
-  "contract_deal": {{
-    "assessment": "good|bad|unknown",
-    "for_sku": "S3 Standard",
-    "reason": "Current monthly forecast ${monthly_forecast:.2f} vs [specific storage class from PRICING] at [price]/GB = [comparison]. {'Good deal if current is cheaper' if billed_cost < monthly_forecast else 'Bad deal if overpaying'}",
-    "monthly_saving_pct": <number>,
-    "annual_saving_pct": <number>
-  }}
+  "anomalies": [{{"metric_name": "Name", "timestamp": "MaxDate", "value": <num>, "reason_short": "Why unusual"}}],
+  "contract_deal": {{"assessment": "good|bad|unknown", "for_sku": "S3 Standard", "reason": "Reserved capacity vs on-demand for Standard", "monthly_saving_pct": <num>, "annual_saving_pct": <num>}}
 }}"""
     return prompt
 

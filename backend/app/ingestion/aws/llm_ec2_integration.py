@@ -297,6 +297,9 @@ def generate_ec2_prompt(instance_data: Dict[str, Any], monthly_forecast: float, 
 
     pricing_context = ""
     has_pricing = False
+    estimated_hours = 0  # Initialize
+    current_hourly_rate = 0  # Initialize
+
     if schema_name and instance_type and instance_type != 'Unknown':
         try:
             # Get current instance type pricing
@@ -355,6 +358,16 @@ def generate_ec2_prompt(instance_data: Dict[str, Any], monthly_forecast: float, 
 
             print(f"{'='*60}\n")
 
+            # Calculate estimated usage hours for clearer alternative cost calculations
+            if current_pricing and current_pricing.get('price_per_hour', 0) > 0:
+                current_hourly_rate = current_pricing['price_per_hour']
+                estimated_hours = billed_cost / current_hourly_rate
+                print(f"Estimated usage hours: {estimated_hours:.2f} hours over {duration_days} days")
+                print(f"Calculated from: ${billed_cost:.4f} / ${current_hourly_rate:.4f}/hr")
+            else:
+                estimated_hours = 0
+                current_hourly_rate = 0
+
             # Format pricing for LLM
             pricing_context = "\n\n" + format_ec2_pricing_for_llm(current_pricing, alternative_pricing) + "\n"
         except Exception as e:
@@ -364,7 +377,11 @@ def generate_ec2_prompt(instance_data: Dict[str, Any], monthly_forecast: float, 
 
             # Fallback pricing on error
             estimated_hourly = _estimate_ec2_hourly_cost(instance_type)
+            current_hourly_rate = estimated_hourly
             has_pricing = True
+            # Calculate estimated hours from fallback pricing
+            if current_hourly_rate > 0:
+                estimated_hours = billed_cost / current_hourly_rate
             pricing_context = f"\n\nPRICING DATA (ESTIMATED - Database unavailable):\nCurrent instance: {instance_type}\nEstimated cost: {estimated_hourly:.4f} USD/hour (~{estimated_hourly * 730:.2f} USD/month)\n"
     else:
         pricing_context = "\n\nPRICING DATA: Not available (schema or instance type not provided)\n"
@@ -385,87 +402,45 @@ def generate_ec2_prompt(instance_data: Dict[str, Any], monthly_forecast: float, 
 
     # Guard clause for missing data
     if not has_pricing or not has_metrics or instance_type == "Unknown" or instance_type == "None":
-        return f"""AWS EC2 FinOps. Analyze {instance_id} | Type: {instance_type} | Region: {region} | {start_date} to {end_date} ({duration_days}d) | Cost: ${billed_cost:.2f}
+        return f"""AWS EC2 {instance_id} | {instance_type} | {duration_days}d | ${billed_cost:.2f}
+ISSUE: {'No pricing' if not has_pricing else 'No metrics' if not has_metrics else 'Unknown type'}
+OUTPUT: {{"recommendations": {{"effective_recommendation": {{"text": "Cannot recommend", "explanation": "Insufficient data", "saving_pct": 0}}, "additional_recommendation": [], "base_of_recommendations": {metrics_list_str}}}, "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}}, "anomalies": [], "contract_deal": {{"assessment": "unknown", "for_sku": "{instance_type}", "reason": "Insufficient data", "monthly_saving_pct": 0, "annual_saving_pct": 0}}}}"""
 
-AVAILABLE METRICS:
-- CPU: Avg {cpu_avg:.2f}%, Max {cpu_max:.2f}%, MaxDate={cpu_max_date}
-- Network In: Avg {network_in_avg:.2f}GB, Max {network_in_max:.2f}GB, MaxDate={network_in_max_date}
-- Network Out: Avg {network_out_avg:.2f}GB, Max {network_out_max:.2f}GB, MaxDate={network_out_max_date}
-- Disk Read: Avg {disk_read_avg:.2f}ops/sec, Max {disk_read_max:.2f}ops/sec, MaxDate={disk_read_max_date}
-- Disk Write: Avg {disk_write_avg:.2f}ops/sec, Max {disk_write_max:.2f}ops/sec, MaxDate={disk_write_max_date}
+    prompt = f"""AWS EC2 {instance_id} | {instance_type} | {region} | {duration_days}d | ${monthly_forecast:.2f}/mo
 
-PRICING OPTIONS:
-{pricing_context}
-
-ISSUE: {'Missing pricing data' if not has_pricing else 'Missing metrics data' if not has_metrics else 'Unknown instance type'}
-
-OUTPUT (JSON only):
-{{
-  "recommendations": {{
-    "effective_recommendation": {{"text": "Unable to provide recommendations", "explanation": "{'Pricing data unavailable for instance type analysis' if not has_pricing else 'No metrics available for resource analysis' if not has_metrics else 'Instance type information not available'}", "saving_pct": 0}},
-    "additional_recommendation": [],
-    "base_of_recommendations": {metrics_list_str}
-  }},
-  "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}},
-  "anomalies": [],
-  "contract_deal": {{"assessment": "unknown", "for_sku": "{instance_type}", "reason": "Insufficient data for assessment", "monthly_saving_pct": 0, "annual_saving_pct": 0}}
-}}"""
-
-    prompt = f"""AWS EC2 FinOps. Analyze {instance_id} | Type: {instance_type} | Region: {region} | {start_date} to {end_date} ({duration_days}d)
-Current Cost: ${billed_cost:.2f} for {duration_days}d | Forecast: ${monthly_forecast:.2f}/mo, ${annual_forecast:.2f}/yr
-
-AVAILABLE METRICS (MUST USE):
-- CPU Utilization: Avg={cpu_avg:.2f}%, Max={cpu_max:.2f}%, MaxDate={cpu_max_date}
+METRICS:
+- CPU: Avg={cpu_avg:.2f}%, Max={cpu_max:.2f}%, MaxDate={cpu_max_date}
 - Network In: Avg={network_in_avg:.2f}GB, Max={network_in_max:.2f}GB, MaxDate={network_in_max_date}
 - Network Out: Avg={network_out_avg:.2f}GB, Max={network_out_max:.2f}GB, MaxDate={network_out_max_date}
-- Disk Read Ops: Avg={disk_read_avg:.2f}ops/sec, Max={disk_read_max:.2f}ops/sec, MaxDate={disk_read_max_date}
-- Disk Write Ops: Avg={disk_write_avg:.2f}ops/sec, Max={disk_write_max:.2f}ops/sec, MaxDate={disk_write_max_date}
+- Disk Read: Avg={disk_read_avg:.2f}ops/sec, Max={disk_read_max:.2f}ops/sec, MaxDate={disk_read_max_date}
+- Disk Write: Avg={disk_write_avg:.2f}ops/sec, Max={disk_write_max:.2f}ops/sec, MaxDate={disk_write_max_date}
 
-PRICING OPTIONS:
+PRICING:
 {pricing_context}
 
-RULES:
-1. MUST cite exact metrics above with units (e.g., "CPU: Avg=15.2%, Max=45.8%")
-2. MUST use monthly forecast ${monthly_forecast:.2f} for savings calculations
-3. Each recommendation MUST be unique (downsize vs reserved instance vs savings plan vs schedule)
-4. Calculate: savings_pct = ((current_monthly_forecast - new_monthly_cost) / current_monthly_forecast) * 100
-5. Anomalies: MUST use exact MaxDate from metrics, explain why value is unusual
-6. Contract assessment: Compare current monthly cost vs alternatives, explain good/bad
+USAGE: {estimated_hours:.2f}hrs @ ${current_hourly_rate:.4f}/hr
 
-OUTPUT (JSON only, NO markdown):
+RULES:
+1. Cite metrics with units
+2. Alt cost = alt_rate × {estimated_hours:.2f}hrs
+3. savings_pct = (forecast - alt_cost) / forecast × 100
+4. Each rec unique type
+5. Anomalies: MaxDate + reason
+6. contract_deal: RI/savings plan vs on-demand for {instance_type} only
+
+OUTPUT (JSON):
 {{
   "recommendations": {{
-    "effective_recommendation": {{
-      "text": "Primary action with exact instance type from PRICING",
-      "explanation": "Based on [cite exact metrics with units from AVAILABLE METRICS] over {duration_days} days, current monthly forecast is ${monthly_forecast:.2f}. [Specific instance type from PRICING] costs [exact price]/mo, saving [exact amount].",
-      "saving_pct": <number calculated from monthly forecast>
-    }},
+    "effective_recommendation": {{"text": "Action", "explanation": "Metrics + cost calc", "saving_pct": <num>}},
     "additional_recommendation": [
-      {{
-        "text": "DIFFERENT recommendation type (e.g., Reserved Instance for current type)",
-        "explanation": "With [cite metrics], purchasing 1-year RI at [discount %] saves [amount] vs on-demand.",
-        "saving_pct": <number>
-      }},
-      {{
-        "text": "THIRD unique recommendation (e.g., Auto-shutdown during off-hours)",
-        "explanation": "Given [metrics showing usage pattern], schedule shutdown 16hrs/day saves ~67% on compute.",
-        "saving_pct": <number>
-      }}
+      {{"text": "Unique type", "explanation": "Metrics + cost calc", "saving_pct": <num>}},
+      {{"text": "Another unique type", "explanation": "Metrics + cost calc", "saving_pct": <num>}}
     ],
     "base_of_recommendations": {metrics_list_str}
   }},
   "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}},
-  "anomalies": [
-    {{"metric_name": "Exact name from AVAILABLE METRICS", "timestamp": "Exact MaxDate from metrics", "value": <exact Max value from metrics>, "reason_short": "Explain why this max value is unusual (spike/drop/sustained high)"}},
-    {{"metric_name": "Another metric name", "timestamp": "Its MaxDate", "value": <its Max value>, "reason_short": "Why unusual for this resource type"}}
-  ],
-  "contract_deal": {{
-    "assessment": "good|bad|unknown",
-    "for_sku": "{instance_type}",
-    "reason": "Current monthly forecast ${monthly_forecast:.2f} vs [specific alternative from PRICING] at [price]/mo = [comparison]. {'Good deal if current is cheaper' if billed_cost < monthly_forecast else 'Bad deal if overpaying'}",
-    "monthly_saving_pct": <number>,
-    "annual_saving_pct": <number>
-  }}
+  "anomalies": [{{"metric_name": "Name", "timestamp": "MaxDate", "value": <num>, "reason_short": "Why unusual"}}],
+  "contract_deal": {{"assessment": "good|bad|unknown", "for_sku": "{instance_type}", "reason": "RI/savings plan vs on-demand for {instance_type}", "monthly_saving_pct": <num>, "annual_saving_pct": <num>}}
 }}"""
 
     return prompt
