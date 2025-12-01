@@ -283,12 +283,12 @@ RULES:
 2. Show ALL calculations in explanation:
    - Alt monthly cost = tier_price_per_GB × capacity_GB
    - Savings $ = ${monthly_forecast:.2f} - alt_monthly_cost
-   - If savings $ is NEGATIVE, it costs MORE (write "cost increase")
-   - savings_pct = (${monthly_forecast:.2f} - alt_monthly_cost) / ${monthly_forecast:.2f} × 100
-   - Example: "Current: ${monthly_forecast:.2f}/mo, Alt: $0.05/GB × 100GB = $5/mo, Savings: ${monthly_forecast:.2f} - $5 = $X (Y%)"
-3. Each recommendation must be DIFFERENT ACTION CATEGORY. Do NOT give same action 3 times (e.g., NOT three tier changes). Consider: tier changes, lifecycle policies, replication configs, versioning/cleanup, reserved capacity
-4. Anomalies: metric name, timestamp, value, reason
-5. contract_deal: reserved capacity vs on-demand for {current_sku} {current_tier} only
+   - savings_pct = (savings $ / ${monthly_forecast:.2f}) × 100
+   - Example: "Current: ${monthly_forecast:.2f}/mo, Alt: $0.05/GB × 100GB = $5/mo, Savings: ${monthly_forecast:.2f} - $5 = $X ({savings_pct:.1f}%)"
+3. CRITICAL: Only recommend if savings $ > 0. If savings $ ≤ 0, DO NOT recommend (costs more or same). Skip that recommendation.
+4. Each recommendation must be DIFFERENT ACTION CATEGORY. Do NOT give same action 3 times (e.g., NOT three tier changes). Consider: tier changes, lifecycle policies, replication configs, versioning/cleanup, reserved capacity
+5. Anomalies: metric name, timestamp, value, reason
+6. contract_deal: reserved capacity vs on-demand for {current_sku} {current_tier} only
 
 OUTPUT (JSON):
 {{
@@ -428,8 +428,12 @@ def _generate_compute_prompt(resource_data: dict, start_date: str, end_date: str
             # Calculate estimated usage hours for clearer alternative cost calculations
             if current_pricing and current_pricing.get('retail_price', 0) > 0:
                 current_hourly_rate = current_pricing['retail_price']
-                estimated_hours = billed_cost / current_hourly_rate
-                print(f"Estimated usage hours: {estimated_hours:.2f} hours over {duration_days} days")
+                estimated_hours_total = billed_cost / current_hourly_rate
+                # Convert to MONTHLY hours (not total period hours)
+                estimated_hours = (estimated_hours_total / duration_days) * 30.4375
+                print(f"Estimated usage hours: {estimated_hours_total:.2f} hours total over {duration_days} days")
+                print(f"  = {estimated_hours_total / duration_days:.2f} hours/day")
+                print(f"  = {estimated_hours:.2f} hours/month (for cost calculations)")
                 print(f"Calculated from: ${billed_cost:.4f} / ${current_hourly_rate:.4f}/hr")
             else:
                 estimated_hours = 0
@@ -458,7 +462,9 @@ def _generate_compute_prompt(resource_data: dict, start_date: str, end_date: str
             ]
             # Calculate estimated hours from fallback pricing
             if current_hourly_rate > 0:
-                estimated_hours = billed_cost / current_hourly_rate
+                estimated_hours_total = billed_cost / current_hourly_rate
+                # Convert to MONTHLY hours (not total period hours)
+                estimated_hours = (estimated_hours_total / duration_days) * 30.4375
             pricing_context = "\n\n" + format_vm_pricing_for_llm(current_pricing, alternative_pricing) + "\n(ESTIMATED - Database unavailable)\n"
     else:
         pricing_context = "\n\nPRICING DATA: Not available (schema or SKU not provided)\n"
@@ -526,14 +532,14 @@ USAGE: {estimated_hours:.2f}hrs @ ${current_hourly_rate:.4f}/hr
 RULES:
 1. Cite metrics with units (e.g., "CPU Avg=5.2%, Max=12.3%")
 2. Show ALL calculations in explanation:
-   - Alt monthly cost = alt_hourly_rate × {estimated_hours:.2f}hrs
+   - Alt monthly cost = alt_hourly_rate × {estimated_hours:.2f}hrs/month
    - Savings $ = ${monthly_forecast:.2f} - alt_monthly_cost
-   - If savings $ is NEGATIVE, it costs MORE (write "cost increase")
-   - savings_pct = (${monthly_forecast:.2f} - alt_monthly_cost) / ${monthly_forecast:.2f} × 100
-   - Example: "Current: ${monthly_forecast:.2f}/mo, Alt: $0.50/hr × {estimated_hours:.2f}hrs = $X/mo, Savings: ${monthly_forecast:.2f} - $X = $Y (Z%)"
-3. Each recommendation must be DIFFERENT ACTION CATEGORY. Do NOT give same action 3 times (e.g., NOT resize to 3 different SKUs). Consider: SKU changes, pricing model changes (reserved/spot), usage schedules, feature optimizations
-4. Anomalies: metric name, timestamp, value, reason
-5. contract_deal: reserved vs on-demand for {current_sku} only
+   - savings_pct = (savings $ / ${monthly_forecast:.2f}) × 100
+   - Example: "Current: ${monthly_forecast:.2f}/mo, Alt: $0.50/hr × {estimated_hours:.2f}hrs/mo = $X/mo, Savings: ${monthly_forecast:.2f} - $X = $Y ({savings_pct:.1f}%)"
+3. CRITICAL: Only recommend if savings $ > 0. If savings $ ≤ 0, DO NOT recommend (costs more or same). Skip that recommendation.
+4. Each recommendation must be DIFFERENT ACTION CATEGORY. Do NOT give same action 3 times (e.g., NOT resize to 3 different SKUs). Consider: SKU changes, pricing model changes (reserved/spot), usage schedules, feature optimizations
+5. Anomalies: metric name, timestamp, value, reason
+6. contract_deal: reserved vs on-demand for {current_sku} only
 
 OUTPUT (JSON):
 {{
@@ -765,12 +771,12 @@ RULES:
 1. Cite metrics with units
 2. Show ALL calculations in explanation:
    - Savings $ = ${monthly_forecast:.2f} - alt_monthly_cost
-   - If savings $ is NEGATIVE, it costs MORE (write "cost increase")
-   - savings_pct = (${monthly_forecast:.2f} - alt_monthly_cost) / ${monthly_forecast:.2f} × 100
-   - Example: "Current: ${monthly_forecast:.2f}/mo, Alt: $X/mo, Savings: ${monthly_forecast:.2f} - $X = $Y (Z%)"
-3. Each recommendation must be DIFFERENT ACTION CATEGORY. Do NOT give same action 3 times. Consider: deallocation/allocation method, reserved pricing, DDoS protection, SKU changes
-4. Anomalies: metric name, timestamp, value, reason
-5. contract_deal: reserved IP vs on-demand IP for {current_sku} only
+   - savings_pct = (savings $ / ${monthly_forecast:.2f}) × 100
+   - Example: "Current: ${monthly_forecast:.2f}/mo, Alt: $X/mo, Savings: ${monthly_forecast:.2f} - $X = $Y ({savings_pct:.1f}%)"
+3. CRITICAL: Only recommend if savings $ > 0. If savings $ ≤ 0, DO NOT recommend (costs more or same). Skip that recommendation.
+4. Each recommendation must be DIFFERENT ACTION CATEGORY. Do NOT give same action 3 times. Consider: deallocation/allocation method, reserved pricing, DDoS protection, SKU changes
+5. Anomalies: metric name, timestamp, value, reason
+6. contract_deal: reserved IP vs on-demand IP for {current_sku} only
 
 OUTPUT (JSON):
 {{
