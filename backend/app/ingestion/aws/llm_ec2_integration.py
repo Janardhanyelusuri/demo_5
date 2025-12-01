@@ -421,12 +421,16 @@ PRICING:
 USAGE: {estimated_hours:.2f}hrs @ ${current_hourly_rate:.4f}/hr
 
 RULES:
-1. Cite metrics with units
-2. Alt cost = alt_rate × {estimated_hours:.2f}hrs
-3. savings_pct = (forecast - alt_cost) / forecast × 100
-4. CRITICAL: Each recommendation must be DIFFERENT ACTION CATEGORY. Do NOT give same action 3 times (e.g., NOT resize to 3 different instance types). Consider: instance type changes, pricing models (RI/savings/spot), usage schedules, optimization features
-5. Anomalies: MaxDate + reason
-6. contract_deal: RI/savings plan vs on-demand for {instance_type} only
+1. Cite metrics with units (e.g., "CPU Avg=5.2%, Max=12.3%")
+2. Show ALL calculations in explanation:
+   - Alt monthly cost = alt_hourly_rate × {estimated_hours:.2f}hrs
+   - Savings $ = ${monthly_forecast:.2f} - alt_monthly_cost
+   - If savings $ is NEGATIVE, it costs MORE (write "cost increase")
+   - savings_pct = (${monthly_forecast:.2f} - alt_monthly_cost) / ${monthly_forecast:.2f} × 100
+   - Example: "Current: ${monthly_forecast:.2f}/mo, Alt: $0.50/hr × {estimated_hours:.2f}hrs = $X/mo, Savings: ${monthly_forecast:.2f} - $X = $Y (Z%)"
+3. Each recommendation must be DIFFERENT ACTION CATEGORY. Do NOT give same action 3 times (e.g., NOT resize to 3 different instance types). Consider: instance type changes, pricing models (RI/savings/spot), usage schedules, optimization features
+4. Anomalies: metric name, timestamp, value, reason
+5. contract_deal: RI/savings plan vs on-demand for {instance_type} only
 
 OUTPUT (JSON):
 {{

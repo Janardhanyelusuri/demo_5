@@ -279,12 +279,16 @@ PRICING:
 {pricing_context}
 
 RULES:
-1. Cite metrics with units
-2. Alt tier cost = tier_price_per_GB × capacity_GB
-3. savings_pct = (forecast - alt_cost) / forecast × 100
-4. CRITICAL: Each recommendation must be DIFFERENT ACTION CATEGORY. Do NOT give same action 3 times (e.g., NOT three tier changes). Consider: tier changes, lifecycle policies, replication configs, versioning/cleanup, reserved capacity
-5. Anomalies: MaxDate + reason
-6. contract_deal: reserved capacity vs on-demand for {current_sku} {current_tier} only
+1. Cite metrics with units (e.g., "Capacity Avg=50.2GB, Max=120.5GB")
+2. Show ALL calculations in explanation:
+   - Alt monthly cost = tier_price_per_GB × capacity_GB
+   - Savings $ = ${monthly_forecast:.2f} - alt_monthly_cost
+   - If savings $ is NEGATIVE, it costs MORE (write "cost increase")
+   - savings_pct = (${monthly_forecast:.2f} - alt_monthly_cost) / ${monthly_forecast:.2f} × 100
+   - Example: "Current: ${monthly_forecast:.2f}/mo, Alt: $0.05/GB × 100GB = $5/mo, Savings: ${monthly_forecast:.2f} - $5 = $X (Y%)"
+3. Each recommendation must be DIFFERENT ACTION CATEGORY. Do NOT give same action 3 times (e.g., NOT three tier changes). Consider: tier changes, lifecycle policies, replication configs, versioning/cleanup, reserved capacity
+4. Anomalies: metric name, timestamp, value, reason
+5. contract_deal: reserved capacity vs on-demand for {current_sku} {current_tier} only
 
 OUTPUT (JSON):
 {{
@@ -520,12 +524,16 @@ PRICING:
 USAGE: {estimated_hours:.2f}hrs @ ${current_hourly_rate:.4f}/hr
 
 RULES:
-1. Cite metrics with units
-2. Alt cost = alt_rate × {estimated_hours:.2f}hrs
-3. savings_pct = (forecast - alt_cost) / forecast × 100
-4. CRITICAL: Each recommendation must be DIFFERENT ACTION CATEGORY. Do NOT give same action 3 times (e.g., NOT resize to 3 different SKUs). Consider: SKU changes, pricing model changes (reserved/spot), usage schedules, feature optimizations
-5. Anomalies: MaxDate + reason
-6. contract_deal: reserved vs on-demand for {current_sku} only
+1. Cite metrics with units (e.g., "CPU Avg=5.2%, Max=12.3%")
+2. Show ALL calculations in explanation:
+   - Alt monthly cost = alt_hourly_rate × {estimated_hours:.2f}hrs
+   - Savings $ = ${monthly_forecast:.2f} - alt_monthly_cost
+   - If savings $ is NEGATIVE, it costs MORE (write "cost increase")
+   - savings_pct = (${monthly_forecast:.2f} - alt_monthly_cost) / ${monthly_forecast:.2f} × 100
+   - Example: "Current: ${monthly_forecast:.2f}/mo, Alt: $0.50/hr × {estimated_hours:.2f}hrs = $X/mo, Savings: ${monthly_forecast:.2f} - $X = $Y (Z%)"
+3. Each recommendation must be DIFFERENT ACTION CATEGORY. Do NOT give same action 3 times (e.g., NOT resize to 3 different SKUs). Consider: SKU changes, pricing model changes (reserved/spot), usage schedules, feature optimizations
+4. Anomalies: metric name, timestamp, value, reason
+5. contract_deal: reserved vs on-demand for {current_sku} only
 
 OUTPUT (JSON):
 {{
@@ -755,9 +763,13 @@ PRICING:
 
 RULES:
 1. Cite metrics with units
-2. savings_pct = (forecast - alt_cost) / forecast × 100
-3. CRITICAL: Each recommendation must be DIFFERENT ACTION CATEGORY. Do NOT give same action 3 times. Consider: deallocation/allocation method, reserved pricing, DDoS protection, SKU changes
-4. Anomalies: MaxDate + reason
+2. Show ALL calculations in explanation:
+   - Savings $ = ${monthly_forecast:.2f} - alt_monthly_cost
+   - If savings $ is NEGATIVE, it costs MORE (write "cost increase")
+   - savings_pct = (${monthly_forecast:.2f} - alt_monthly_cost) / ${monthly_forecast:.2f} × 100
+   - Example: "Current: ${monthly_forecast:.2f}/mo, Alt: $X/mo, Savings: ${monthly_forecast:.2f} - $X = $Y (Z%)"
+3. Each recommendation must be DIFFERENT ACTION CATEGORY. Do NOT give same action 3 times. Consider: deallocation/allocation method, reserved pricing, DDoS protection, SKU changes
+4. Anomalies: metric name, timestamp, value, reason
 5. contract_deal: reserved IP vs on-demand IP for {current_sku} only
 
 OUTPUT (JSON):

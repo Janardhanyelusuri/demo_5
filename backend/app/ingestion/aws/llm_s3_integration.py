@@ -369,12 +369,16 @@ PRICING:
 {pricing_context}
 
 RULES:
-1. Cite metrics with units
-2. Alt class cost = class_price_per_GB × capacity_GB
-3. savings_pct = (forecast - alt_cost) / forecast × 100
-4. CRITICAL: Each recommendation must be DIFFERENT ACTION CATEGORY. Do NOT give same action 3 times (e.g., NOT three storage class changes). Consider: storage class changes, lifecycle policies, versioning configs, replication settings
-5. Anomalies: MaxDate + reason
-6. contract_deal: reserved capacity vs on-demand for Standard class only
+1. Cite metrics with units (e.g., "Capacity Avg=50.2GB, Max=120.5GB")
+2. Show ALL calculations in explanation:
+   - Alt monthly cost = class_price_per_GB × capacity_GB
+   - Savings $ = ${monthly_forecast:.2f} - alt_monthly_cost
+   - If savings $ is NEGATIVE, it costs MORE (write "cost increase")
+   - savings_pct = (${monthly_forecast:.2f} - alt_monthly_cost) / ${monthly_forecast:.2f} × 100
+   - Example: "Current: ${monthly_forecast:.2f}/mo, Alt: $0.05/GB × 100GB = $5/mo, Savings: ${monthly_forecast:.2f} - $5 = $X (Y%)"
+3. Each recommendation must be DIFFERENT ACTION CATEGORY. Do NOT give same action 3 times (e.g., NOT three storage class changes). Consider: storage class changes, lifecycle policies, versioning configs, replication settings
+4. Anomalies: metric name, timestamp, value, reason
+5. contract_deal: reserved capacity vs on-demand for Standard class only
 
 OUTPUT (JSON):
 {{
