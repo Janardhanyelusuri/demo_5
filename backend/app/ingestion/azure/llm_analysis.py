@@ -266,81 +266,39 @@ def _generate_storage_prompt(resource_data: dict, start_date: str, end_date: str
 
     # Guard clause for missing data
     if not has_pricing or not has_metrics or current_sku == "N/A" or current_sku == "None":
-        return f"""Azure Storage FinOps. Analyze {resource_data.get("resource_id", "N/A")} | SKU: {current_sku} {current_tier} | {start_date} to {end_date} ({duration_days}d) | Cost: ${billed_cost:.2f}
+        return f"""Azure Storage {resource_data.get("resource_id", "N/A")} | {current_sku} {current_tier} | {duration_days}d | ${billed_cost:.2f}
+ISSUE: {'No pricing' if not has_pricing else 'No metrics' if not has_metrics else 'Unknown SKU'}
+OUTPUT: {{"recommendations": {{"effective_recommendation": {{"text": "Cannot recommend", "explanation": "Insufficient data", "saving_pct": 0}}, "additional_recommendation": [], "base_of_recommendations": {metrics_list_str}}}, "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}}, "anomalies": [], "contract_deal": {{"assessment": "unknown", "for_sku": "{current_sku} {current_tier}", "reason": "Insufficient data", "monthly_saving_pct": 0, "annual_saving_pct": 0}}}}"""
 
-AVAILABLE METRICS:
+    return f"""Azure Storage {resource_data.get("resource_id", "N/A")} | {current_sku} {current_tier} | {duration_days}d | ${monthly_forecast:.2f}/mo
+
+METRICS:
 {metrics_text}
 
-PRICING OPTIONS:
-{pricing_context}
-
-ISSUE: {'Missing pricing data' if not has_pricing else 'Missing metrics data' if not has_metrics else 'Unknown SKU'}
-
-OUTPUT (JSON only):
-{{
-  "recommendations": {{
-    "effective_recommendation": {{"text": "Unable to provide recommendations", "explanation": "{'Pricing data unavailable for tier analysis' if not has_pricing else 'No metrics available for resource analysis' if not has_metrics else 'SKU information not available'}", "saving_pct": 0}},
-    "additional_recommendation": [],
-    "base_of_recommendations": {metrics_list_str}
-  }},
-  "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}},
-  "anomalies": [],
-  "contract_deal": {{"assessment": "unknown", "for_sku": "{current_sku} {current_tier}", "reason": "Insufficient data for assessment", "monthly_saving_pct": 0, "annual_saving_pct": 0}}
-}}"""
-
-    return f"""Azure Storage FinOps. Analyze {resource_data.get("resource_id", "N/A")} | {current_sku} {current_tier} | {start_date} to {end_date} ({duration_days}d)
-Current Cost: ${billed_cost:.2f} for {duration_days}d | Forecast: ${monthly_forecast:.2f}/mo, ${annual_forecast:.2f}/yr
-
-AVAILABLE METRICS (MUST USE):
-{metrics_text}
-
-PRICING OPTIONS:
+PRICING:
 {pricing_context}
 
 RULES:
-1. MUST cite exact metrics above with units (e.g., "Capacity: Avg=150.2GB, Max=200.5GB")
-2. MUST use monthly forecast ${monthly_forecast:.2f} for savings calculations
-3. PRICING shows storage costs per GB. Current forecast ${monthly_forecast:.2f} includes actual storage usage.
-   To calculate alternative tier costs: use same storage capacity with alternative tier pricing
-4. Each recommendation MUST be unique (tier change vs lifecycle policy vs replication config vs cleanup)
-5. Calculate: savings_pct = ((current_monthly_forecast - alternative_tier_cost) / current_monthly_forecast) * 100
-6. Anomalies: MUST use exact MaxDate from metrics, explain why value is unusual
-7. Contract assessment: Compare current monthly cost vs alternatives, explain good/bad
+1. Cite metrics with units
+2. Alt tier cost = tier_price_per_GB × capacity_GB
+3. savings_pct = (forecast - alt_cost) / forecast × 100
+4. Each rec unique type (tier/lifecycle/replication/cleanup)
+5. Anomalies: MaxDate + reason
+6. contract_deal: reserved capacity vs on-demand for {current_sku} {current_tier} only
 
-OUTPUT (JSON only, NO markdown):
+OUTPUT (JSON):
 {{
   "recommendations": {{
-    "effective_recommendation": {{
-      "text": "Primary action with exact tier name from PRICING",
-      "explanation": "Based on [cite exact metrics with units from AVAILABLE METRICS] over {duration_days} days, current monthly forecast is ${monthly_forecast:.2f}. [Specific tier from PRICING] costs [exact price]/mo for [capacity]GB, saving [exact amount].",
-      "saving_pct": <number calculated from monthly forecast>
-    }},
+    "effective_recommendation": {{"text": "Action", "explanation": "Metrics + cost calc", "saving_pct": <num>}},
     "additional_recommendation": [
-      {{
-        "text": "DIFFERENT recommendation type (e.g., Lifecycle policy to archive old data)",
-        "explanation": "With [cite capacity metrics], moving data older than 90 days to Archive tier at [price from PRICING] saves [amount]/mo.",
-        "saving_pct": <number>
-      }},
-      {{
-        "text": "THIRD unique recommendation (e.g., Change replication to LRS if RA-GRS not needed)",
-        "explanation": "Given [usage pattern from metrics], reducing replication from GRS to LRS saves ~50% on storage costs.",
-        "saving_pct": <number>
-      }}
+      {{"text": "Unique type", "explanation": "Metrics + cost calc", "saving_pct": <num>}},
+      {{"text": "Another unique type", "explanation": "Metrics + cost calc", "saving_pct": <num>}}
     ],
     "base_of_recommendations": {metrics_list_str}
   }},
   "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}},
-  "anomalies": [
-    {{"metric_name": "Exact name from AVAILABLE METRICS", "timestamp": "Exact MaxDate from metrics", "value": <exact Max value from metrics>, "reason_short": "Explain why this max value is unusual (spike/drop/sustained high)"}},
-    {{"metric_name": "Another metric name", "timestamp": "Its MaxDate", "value": <its Max value>, "reason_short": "Why unusual for this resource type"}}
-  ],
-  "contract_deal": {{
-    "assessment": "good|bad|unknown",
-    "for_sku": "{current_sku} {current_tier}",
-    "reason": "Current monthly forecast ${monthly_forecast:.2f} vs [specific alternative tier from PRICING] at [price]/mo for same capacity = [comparison]. {'Good deal if current is cheaper' if billed_cost < monthly_forecast else 'Bad deal if overpaying'}",
-    "monthly_saving_pct": <number>,
-    "annual_saving_pct": <number>
-  }}
+  "anomalies": [{{"metric_name": "Name", "timestamp": "MaxDate", "value": <num>, "reason_short": "Why unusual"}}],
+  "contract_deal": {{"assessment": "good|bad|unknown", "for_sku": "{current_sku} {current_tier}", "reason": "Reserved capacity vs on-demand for {current_sku} {current_tier}", "monthly_saving_pct": <num>, "annual_saving_pct": <num>}}
 }}"""
 
 def _estimate_vm_hourly_cost(sku_name: str) -> float:
@@ -547,88 +505,41 @@ def _generate_compute_prompt(resource_data: dict, start_date: str, end_date: str
     has_metrics = bool(metrics_summary)
 
     if not has_pricing or not has_metrics or current_sku == "N/A" or current_sku == "None":
-        # Cannot make proper recommendations without pricing or metrics
-        return f"""Azure VM FinOps. Analyze {resource_id} | SKU: {current_sku} | {start_date} to {end_date} ({duration_days}d) | Cost: ${billed_cost:.2f}
+        return f"""Azure VM {resource_id} | {current_sku} | {duration_days}d | ${billed_cost:.2f}
+ISSUE: {'No pricing' if not has_pricing else 'No metrics' if not has_metrics else 'Unknown SKU'}
+OUTPUT: {{"recommendations": {{"effective_recommendation": {{"text": "Cannot recommend", "explanation": "Insufficient data", "saving_pct": 0}}, "additional_recommendation": [], "base_of_recommendations": {metrics_list_str}}}, "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}}, "anomalies": [], "contract_deal": {{"assessment": "unknown", "for_sku": "{current_sku}", "reason": "Insufficient data", "monthly_saving_pct": 0, "annual_saving_pct": 0}}}}"""
 
-AVAILABLE METRICS:
+    return f"""Azure VM {resource_id} | {current_sku} | {duration_days}d | ${monthly_forecast:.2f}/mo
+
+METRICS:
 {metrics_text}
 
-PRICING OPTIONS:
+PRICING:
 {pricing_context}
 
-ISSUE: {'Missing pricing data' if not has_pricing else 'Missing metrics data' if not has_metrics else 'Unknown SKU'}
-
-OUTPUT (JSON only):
-{{
-  "recommendations": {{
-    "effective_recommendation": {{"text": "Unable to provide recommendations", "explanation": "{'Pricing data unavailable for SKU analysis' if not has_pricing else 'No metrics available for resource analysis' if not has_metrics else 'SKU information not available'}", "saving_pct": 0}},
-    "additional_recommendation": [],
-    "base_of_recommendations": {metrics_list_str}
-  }},
-  "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}},
-  "anomalies": [],
-  "contract_deal": {{"assessment": "unknown", "for_sku": "{current_sku}", "reason": "Insufficient data for assessment", "monthly_saving_pct": 0, "annual_saving_pct": 0}}
-}}"""
-
-    return f"""Azure VM FinOps. Analyze {resource_id} | SKU: {current_sku} | {start_date} to {end_date} ({duration_days}d)
-Current Cost: ${billed_cost:.2f} for {duration_days}d | Forecast: ${monthly_forecast:.2f}/mo, ${annual_forecast:.2f}/yr
-
-AVAILABLE METRICS (MUST USE):
-{metrics_text}
-
-PRICING OPTIONS:
-{pricing_context}
-
-USAGE CALCULATION:
-- Current cost ${billed_cost:.4f} over {duration_days}d
-- Current hourly rate: ${current_hourly_rate:.4f}/hr
-- Estimated usage: {estimated_hours:.2f} hours
-- Monthly forecast: ${monthly_forecast:.2f}
+USAGE: {estimated_hours:.2f}hrs @ ${current_hourly_rate:.4f}/hr
 
 RULES:
-1. MUST cite exact metrics above with units (e.g., "CPU: Avg=15.2%, Max=45.8%")
-2. MUST use monthly forecast ${monthly_forecast:.2f} for savings calculations
-3. To calculate alternative costs: alternative_hourly_rate × {estimated_hours:.2f} hours
-   Example: If ALT1 = $0.05/hr, then ALT1 cost = $0.05 × {estimated_hours:.2f} = ${estimated_hours * 0.05 if estimated_hours > 0 else 0:.4f}
-4. Each recommendation MUST be unique (downsize vs reserved instance vs schedule vs automation)
-5. Calculate: savings_pct = ((monthly_forecast - alternative_cost) / monthly_forecast) * 100
-6. Anomalies: MUST use exact MaxDate from metrics, explain why value is unusual
-7. Contract assessment: Compare current monthly cost vs alternatives, explain good/bad
+1. Cite metrics with units
+2. Alt cost = alt_rate × {estimated_hours:.2f}hrs
+3. savings_pct = (forecast - alt_cost) / forecast × 100
+4. Each rec unique type
+5. Anomalies: MaxDate + reason
+6. contract_deal: reserved vs on-demand for {current_sku} only
 
-OUTPUT (JSON only, NO markdown):
+OUTPUT (JSON):
 {{
   "recommendations": {{
-    "effective_recommendation": {{
-      "text": "Primary action with exact SKU name from PRICING",
-      "explanation": "Based on [cite exact metrics with units from AVAILABLE METRICS] over {duration_days} days, current monthly forecast is ${monthly_forecast:.2f}. Scaling [Specific SKU from PRICING] hourly rate to same usage pattern = $[scaled cost]/mo, saving $[exact amount].",
-      "saving_pct": <number calculated from monthly forecast>
-    }},
+    "effective_recommendation": {{"text": "Action", "explanation": "Metrics + cost calc", "saving_pct": <num>}},
     "additional_recommendation": [
-      {{
-        "text": "DIFFERENT recommendation type (e.g., Reserved Instance for current SKU)",
-        "explanation": "With [cite metrics], purchasing 1-year RI at [price from PRICING] saves [amount] vs pay-as-you-go.",
-        "saving_pct": <number>
-      }},
-      {{
-        "text": "THIRD unique recommendation (e.g., Auto-shutdown during off-hours)",
-        "explanation": "Given [metrics showing usage pattern], schedule shutdown 16hrs/day saves ~67% on compute.",
-        "saving_pct": <number>
-      }}
+      {{"text": "Unique type", "explanation": "Metrics + cost calc", "saving_pct": <num>}},
+      {{"text": "Another unique type", "explanation": "Metrics + cost calc", "saving_pct": <num>}}
     ],
     "base_of_recommendations": {metrics_list_str}
   }},
   "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}},
-  "anomalies": [
-    {{"metric_name": "Exact name from AVAILABLE METRICS", "timestamp": "Exact MaxDate from metrics", "value": <exact Max value from metrics>, "reason_short": "Explain why this max value is unusual (spike/drop/sustained high)"}},
-    {{"metric_name": "Another metric name", "timestamp": "Its MaxDate", "value": <its Max value>, "reason_short": "Why unusual for this resource type"}}
-  ],
-  "contract_deal": {{
-    "assessment": "good|bad|unknown",
-    "for_sku": "{current_sku}",
-    "reason": "Current monthly forecast ${monthly_forecast:.2f} vs [specific alternative from PRICING] at [price]/mo = [comparison]. {'Good deal if current is cheaper' if billed_cost < monthly_forecast else 'Bad deal if overpaying'}",
-    "monthly_saving_pct": <number>,
-    "annual_saving_pct": <number>
-  }}
+  "anomalies": [{{"metric_name": "Name", "timestamp": "MaxDate", "value": <num>, "reason_short": "Why unusual"}}],
+  "contract_deal": {{"assessment": "good|bad|unknown", "for_sku": "{current_sku}", "reason": "Reserved vs on-demand for {current_sku}", "monthly_saving_pct": <num>, "annual_saving_pct": <num>}}
 }}"""
 
 # --- EXPORTED LLM CALL FUNCTIONS (with logging) ---
@@ -830,80 +741,38 @@ def _generate_public_ip_prompt(resource_data: dict, start_date: str, end_date: s
 
     # Guard clause for missing data
     if not has_pricing or not has_metrics or current_sku == "N/A" or current_sku == "None":
-        return f"""Azure Public IP FinOps. Analyze {resource_data.get("resource_id", "N/A")} | SKU: {current_sku} {current_tier} | IP: {ip_address} ({allocation_method}) | {start_date} to {end_date} ({duration_days}d) | Cost: ${billed_cost:.2f}
+        return f"""Azure PublicIP {resource_data.get("resource_id", "N/A")} | {current_sku} | {duration_days}d | ${billed_cost:.2f}
+ISSUE: {'No pricing' if not has_pricing else 'No metrics' if not has_metrics else 'Unknown SKU'}
+OUTPUT: {{"recommendations": {{"effective_recommendation": {{"text": "Cannot recommend", "explanation": "Insufficient data", "saving_pct": 0}}, "additional_recommendation": [], "base_of_recommendations": {metrics_list_str}}}, "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}}, "anomalies": [], "contract_deal": {{"assessment": "unknown", "for_sku": "{current_sku}", "reason": "Insufficient data", "monthly_saving_pct": 0, "annual_saving_pct": 0}}}}"""
 
-AVAILABLE METRICS:
+    return f"""Azure PublicIP {resource_data.get("resource_id", "N/A")} | {current_sku} | {allocation_method} | {duration_days}d | ${monthly_forecast:.2f}/mo
+
+METRICS:
 {metrics_text}
 
-PRICING OPTIONS:
-{pricing_context}
-
-ISSUE: {'Missing pricing data' if not has_pricing else 'Missing metrics data' if not has_metrics else 'Unknown SKU'}
-
-OUTPUT (JSON only):
-{{
-  "recommendations": {{
-    "effective_recommendation": {{"text": "Unable to provide recommendations", "explanation": "{'Pricing data unavailable for allocation analysis' if not has_pricing else 'No metrics available for resource analysis' if not has_metrics else 'SKU information not available'}", "saving_pct": 0}},
-    "additional_recommendation": [],
-    "base_of_recommendations": {metrics_list_str}
-  }},
-  "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}},
-  "anomalies": [],
-  "contract_deal": {{"assessment": "unknown", "for_sku": "{current_sku}", "reason": "Insufficient data for assessment", "monthly_saving_pct": 0, "annual_saving_pct": 0}}
-}}"""
-
-    return f"""Azure Public IP FinOps. Analyze {resource_data.get("resource_id", "N/A")} | {current_sku} {current_tier} | IP: {ip_address} ({allocation_method}) | {start_date} to {end_date} ({duration_days}d)
-Current Cost: ${billed_cost:.2f} for {duration_days}d | Forecast: ${monthly_forecast:.2f}/mo, ${annual_forecast:.2f}/yr
-
-AVAILABLE METRICS (MUST USE):
-{metrics_text}
-
-PRICING OPTIONS:
+PRICING:
 {pricing_context}
 
 RULES:
-1. MUST cite exact metrics above with units (e.g., "BytesInDDoS: Avg=150.2Bps, Max=500.5Bps")
-2. MUST use monthly forecast ${monthly_forecast:.2f} for savings calculations
-3. PRICING shows 24/7 costs for Public IPs. Current forecast ${monthly_forecast:.2f} is based on actual usage over {duration_days}d.
-4. Each recommendation MUST be unique (deallocate unused vs change allocation method vs reserved IP vs DDoS protection)
-5. Calculate: savings_pct = ((current_monthly_forecast - alternative_cost) / current_monthly_forecast) * 100
-6. Anomalies: MUST use exact MaxDate from metrics, explain why value is unusual
-7. Contract assessment: Compare current monthly cost vs alternatives, explain good/bad
+1. Cite metrics with units
+2. savings_pct = (forecast - alt_cost) / forecast × 100
+3. Each rec unique type (deallocate/change allocation/reserved/DDoS)
+4. Anomalies: MaxDate + reason
+5. contract_deal: reserved IP vs on-demand IP for {current_sku} only
 
-OUTPUT (JSON only, NO markdown):
+OUTPUT (JSON):
 {{
   "recommendations": {{
-    "effective_recommendation": {{
-      "text": "Primary action with exact allocation method from PRICING",
-      "explanation": "Based on [cite exact metrics with units from AVAILABLE METRICS] over {duration_days} days, current monthly forecast is ${monthly_forecast:.2f}. [Specific allocation from PRICING] costs [exact price]/mo, saving [exact amount].",
-      "saving_pct": <number calculated from monthly forecast>
-    }},
+    "effective_recommendation": {{"text": "Action", "explanation": "Metrics + cost calc", "saving_pct": <num>}},
     "additional_recommendation": [
-      {{
-        "text": "DIFFERENT recommendation type (e.g., Deallocate IP when not in use)",
-        "explanation": "With [cite usage metrics], IP shows [low usage pattern]. Deallocating when idle saves [amount]/mo vs static allocation.",
-        "saving_pct": <number>
-      }},
-      {{
-        "text": "THIRD unique recommendation (e.g., Use Azure Load Balancer frontend IP instead)",
-        "explanation": "Given [traffic pattern from metrics], consolidating behind load balancer eliminates need for dedicated public IP.",
-        "saving_pct": <number>
-      }}
+      {{"text": "Unique type", "explanation": "Metrics + cost calc", "saving_pct": <num>}},
+      {{"text": "Another unique type", "explanation": "Metrics + cost calc", "saving_pct": <num>}}
     ],
     "base_of_recommendations": {metrics_list_str}
   }},
   "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}},
-  "anomalies": [
-    {{"metric_name": "Exact name from AVAILABLE METRICS", "timestamp": "Exact MaxDate from metrics", "value": <exact Max value from metrics>, "reason_short": "Explain why this max value is unusual (spike/drop/attack)"}},
-    {{"metric_name": "Another metric name", "timestamp": "Its MaxDate", "value": <its Max value>, "reason_short": "Why unusual for this resource type"}}
-  ],
-  "contract_deal": {{
-    "assessment": "good|bad|unknown",
-    "for_sku": "{current_sku}",
-    "reason": "Current monthly forecast ${monthly_forecast:.2f} vs [specific alternative from PRICING] at [price]/mo = [comparison]. {'Good deal if current is cheaper' if billed_cost < monthly_forecast else 'Bad deal if overpaying'}",
-    "monthly_saving_pct": <number>,
-    "annual_saving_pct": <number>
-  }}
+  "anomalies": [{{"metric_name": "Name", "timestamp": "MaxDate", "value": <num>, "reason_short": "Why unusual"}}],
+  "contract_deal": {{"assessment": "good|bad|unknown", "for_sku": "{current_sku}", "reason": "Reserved vs on-demand for {current_sku}", "monthly_saving_pct": <num>, "annual_saving_pct": <num>}}
 }}"""
 
 
