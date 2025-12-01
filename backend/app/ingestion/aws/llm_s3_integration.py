@@ -296,34 +296,44 @@ def generate_s3_prompt(bucket_data: dict) -> str:
         if values.get('Avg') is not None:
             metrics_list.append(f"{metric_name}: Avg={values['Avg']:.2f}, Max={values.get('Max', 0):.2f}")
 
+    # Build explicit metric summary
+    metrics_summary = []
+    for metric_name, values in formatted_metrics.items():
+        if values.get('Avg') is not None:
+            metrics_summary.append(f"- {metric_name}: Avg={values['Avg']:.2f}, Max={values.get('Max', 0):.2f}")
+    metrics_text = "\n".join(metrics_summary) if metrics_summary else "No metrics available"
+
     prompt = f"""AWS S3 FinOps. Analyze {bucket_name} | Region: {region} | {start_date} to {end_date} ({duration_days}d) | Cost: ${billed_cost:.2f}
 
-METRICS: {json.dumps(formatted_metrics, indent=2)}
+AVAILABLE METRICS (MUST USE THESE):
+{metrics_text}
 
-PRICING: {pricing_context}
+PRICING OPTIONS:
+{pricing_context}
 
-RULES:
-- Use ONLY data from METRICS & PRICING (no invented values)
-- Decisive language only (banned: "consider", "review", "optimize", "could", "should")
-- savings_pct = ((current - new) / current) * 100
-- base_of_recommendations MUST list metrics analyzed
+CRITICAL RULES:
+1. MUST use actual metric values from AVAILABLE METRICS
+2. NEVER say "no metrics" - USE THE METRICS SHOWN
+3. Cite specific numbers (GB, requests/day)
+4. Pick SPECIFIC storage class from PRICING OPTIONS
+5. base_of_recommendations = {metrics_list}
 
-JSON OUTPUT:
+OUTPUT (JSON only):
 {{
   "recommendations": {{
-    "effective_recommendation": {{"text": "Action + storage class from PRICING", "explanation": "Cite metrics & pricing", "saving_pct": 0}},
+    "effective_recommendation": {{"text": "Specific action with storage class", "explanation": "Based on [cite metrics + pricing]", "saving_pct": <number>}},
     "additional_recommendation": [
-      {{"text": "Action + recommendation", "explanation": "Cite metrics & pricing", "saving_pct": 0}},
-      {{"text": "Action + recommendation", "explanation": "Cite metrics & pricing", "saving_pct": 0}}
+      {{"text": "Specific action", "explanation": "Cite metrics + pricing", "saving_pct": <number>}},
+      {{"text": "Specific action", "explanation": "Cite metrics + pricing", "saving_pct": <number>}}
     ],
     "base_of_recommendations": {metrics_list}
   }},
   "cost_forecasting": {{"monthly": 0, "annually": 0}},
   "anomalies": [
-    {{"metric_name": "From METRICS", "timestamp": "MaxDate from METRICS", "value": 0, "reason_short": "Why anomaly"}},
-    {{"metric_name": "From METRICS", "timestamp": "MaxDate from METRICS", "value": 0, "reason_short": "Why anomaly"}}
+    {{"metric_name": "From AVAILABLE METRICS", "timestamp": "MaxDate", "value": <number>, "reason_short": "Why"}},
+    {{"metric_name": "From AVAILABLE METRICS", "timestamp": "MaxDate", "value": <number>, "reason_short": "Why"}}
   ],
-  "contract_deal": {{"assessment": "good|bad|unknown", "for_sku": "S3 Standard", "reason": "Compare current vs alternatives", "monthly_saving_pct": 0, "annual_saving_pct": 0}}
+  "contract_deal": {{"assessment": "good|bad|unknown", "for_sku": "S3 Standard", "reason": "Compare using PRICING", "monthly_saving_pct": <number>, "annual_saving_pct": <number>}}
 }}"""
     return prompt
 

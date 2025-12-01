@@ -276,9 +276,11 @@ def fetch_vm_utilization_data(conn, schema_name, start_date, end_date, resource_
             metrics_series = df["metrics_json"].apply(_to_dict)
             metrics_expanded = pd.json_normalize(metrics_series).add_prefix("metric_")
             metrics_expanded.index = df.index
-            # We rename rd.resource_name to 'resource_name' if it's not overridden by vm_name
-            df = pd.concat([df.drop(columns=["metrics_json", "resource_name"]), metrics_expanded], axis=1)
-            df.rename(columns={'vm_name': 'resource_name'}, inplace=True) # Ensure 'resource_name' remains
+            # Drop metrics_json and rename vm_name to resource_name
+            df = pd.concat([df.drop(columns=["metrics_json"]), metrics_expanded], axis=1)
+            # Only rename if vm_name exists
+            if 'vm_name' in df.columns:
+                df.rename(columns={'vm_name': 'resource_name'}, inplace=True)
         except Exception as ex:
             print(f"Warning: failed to expand metrics_json: {ex}")
             # keep original df without expansion
