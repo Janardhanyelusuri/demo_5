@@ -361,8 +361,12 @@ def generate_ec2_prompt(instance_data: Dict[str, Any], monthly_forecast: float, 
             # Calculate estimated usage hours for clearer alternative cost calculations
             if current_pricing and current_pricing.get('price_per_hour', 0) > 0:
                 current_hourly_rate = current_pricing['price_per_hour']
-                estimated_hours = billed_cost / current_hourly_rate
-                print(f"Estimated usage hours: {estimated_hours:.2f} hours over {duration_days} days")
+                estimated_hours_total = billed_cost / current_hourly_rate
+                # Convert to MONTHLY hours (not total period hours)
+                estimated_hours = (estimated_hours_total / duration_days) * 30.4375
+                print(f"Estimated usage hours: {estimated_hours_total:.2f} hours total over {duration_days} days")
+                print(f"  = {estimated_hours_total / duration_days:.2f} hours/day")
+                print(f"  = {estimated_hours:.2f} hours/month (for cost calculations)")
                 print(f"Calculated from: ${billed_cost:.4f} / ${current_hourly_rate:.4f}/hr")
             else:
                 estimated_hours = 0
@@ -381,7 +385,9 @@ def generate_ec2_prompt(instance_data: Dict[str, Any], monthly_forecast: float, 
             has_pricing = True
             # Calculate estimated hours from fallback pricing
             if current_hourly_rate > 0:
-                estimated_hours = billed_cost / current_hourly_rate
+                estimated_hours_total = billed_cost / current_hourly_rate
+                # Convert to MONTHLY hours (not total period hours)
+                estimated_hours = (estimated_hours_total / duration_days) * 30.4375
             pricing_context = f"\n\nPRICING DATA (ESTIMATED - Database unavailable):\nCurrent instance: {instance_type}\nEstimated cost: {estimated_hourly:.4f} USD/hour (~{estimated_hourly * 730:.2f} USD/month)\n"
     else:
         pricing_context = "\n\nPRICING DATA: Not available (schema or instance type not provided)\n"
@@ -421,11 +427,15 @@ PRICING:
 USAGE: {estimated_hours:.2f}hrs @ ${current_hourly_rate:.4f}/hr
 
 RULES:
-1. Cite metrics with units
-2. Alt cost = alt_rate × {estimated_hours:.2f}hrs
-3. savings_pct = (forecast - alt_cost) / forecast × 100
-4. CRITICAL: Each recommendation must be DIFFERENT ACTION CATEGORY. Do NOT give same action 3 times (e.g., NOT resize to 3 different instance types). Consider: instance type changes, pricing models (RI/savings/spot), usage schedules, optimization features
-5. Anomalies: MaxDate + reason
+1. Cite metrics with units (e.g., "CPU Avg=5.2%, Max=12.3%")
+2. Show ALL calculations in explanation:
+   - Alt monthly cost = alt_hourly_rate × {estimated_hours:.2f}hrs/month
+   - Savings $ = ${monthly_forecast:.2f} - alt_monthly_cost
+   - savings_pct = (savings $ / ${monthly_forecast:.2f}) × 100
+   - Example: "Current: ${monthly_forecast:.2f}/mo, Alt: $0.50/hr × {estimated_hours:.2f}hrs/mo = $X/mo, Savings: ${monthly_forecast:.2f} - $X = $Y ({savings_pct:.1f}%)"
+3. CRITICAL: Only recommend if savings $ > 0. If savings $ ≤ 0, DO NOT recommend (costs more or same). Skip that recommendation.
+4. Each recommendation must be DIFFERENT ACTION CATEGORY. Do NOT give same action 3 times (e.g., NOT resize to 3 different instance types). Consider: instance type changes, pricing models (RI/savings/spot), usage schedules, optimization features
+5. Anomalies: metric name, timestamp, value, reason
 6. contract_deal: RI/savings plan vs on-demand for {instance_type} only
 
 OUTPUT (JSON):
