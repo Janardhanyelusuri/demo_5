@@ -372,7 +372,7 @@ RULES:
 1. Cite metrics with units
 2. Alt class cost = class_price_per_GB × capacity_GB
 3. savings_pct = (forecast - alt_cost) / forecast × 100
-4. Each rec unique type (class/lifecycle/versioning/replication)
+4. CRITICAL: Each recommendation must be DIFFERENT ACTION CATEGORY. Do NOT give same action 3 times (e.g., NOT three storage class changes). Consider: storage class changes, lifecycle policies, versioning configs, replication settings
 5. Anomalies: MaxDate + reason
 6. contract_deal: reserved capacity vs on-demand for Standard class only
 

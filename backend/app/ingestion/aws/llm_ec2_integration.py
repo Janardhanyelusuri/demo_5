@@ -424,7 +424,7 @@ RULES:
 1. Cite metrics with units
 2. Alt cost = alt_rate × {estimated_hours:.2f}hrs
 3. savings_pct = (forecast - alt_cost) / forecast × 100
-4. Each rec unique type
+4. CRITICAL: Each recommendation must be DIFFERENT ACTION CATEGORY. Do NOT give same action 3 times (e.g., NOT resize to 3 different instance types). Consider: instance type changes, pricing models (RI/savings/spot), usage schedules, optimization features
 5. Anomalies: MaxDate + reason
 6. contract_deal: RI/savings plan vs on-demand for {instance_type} only
 

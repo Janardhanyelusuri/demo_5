@@ -282,7 +282,7 @@ RULES:
 1. Cite metrics with units
 2. Alt tier cost = tier_price_per_GB × capacity_GB
 3. savings_pct = (forecast - alt_cost) / forecast × 100
-4. Each rec unique type (tier/lifecycle/replication/cleanup)
+4. CRITICAL: Each recommendation must be DIFFERENT ACTION CATEGORY. Do NOT give same action 3 times (e.g., NOT three tier changes). Consider: tier changes, lifecycle policies, replication configs, versioning/cleanup, reserved capacity
 5. Anomalies: MaxDate + reason
 6. contract_deal: reserved capacity vs on-demand for {current_sku} {current_tier} only
 
@@ -523,7 +523,7 @@ RULES:
 1. Cite metrics with units
 2. Alt cost = alt_rate × {estimated_hours:.2f}hrs
 3. savings_pct = (forecast - alt_cost) / forecast × 100
-4. Each rec unique type
+4. CRITICAL: Each recommendation must be DIFFERENT ACTION CATEGORY. Do NOT give same action 3 times (e.g., NOT resize to 3 different SKUs). Consider: SKU changes, pricing model changes (reserved/spot), usage schedules, feature optimizations
 5. Anomalies: MaxDate + reason
 6. contract_deal: reserved vs on-demand for {current_sku} only
 
@@ -756,7 +756,7 @@ PRICING:
 RULES:
 1. Cite metrics with units
 2. savings_pct = (forecast - alt_cost) / forecast × 100
-3. Each rec unique type (deallocate/change allocation/reserved/DDoS)
+3. CRITICAL: Each recommendation must be DIFFERENT ACTION CATEGORY. Do NOT give same action 3 times. Consider: deallocation/allocation method, reserved pricing, DDoS protection, SKU changes
 4. Anomalies: MaxDate + reason
 5. contract_deal: reserved IP vs on-demand IP for {current_sku} only
 
