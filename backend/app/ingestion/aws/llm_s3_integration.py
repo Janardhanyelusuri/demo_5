@@ -7,7 +7,7 @@ import hashlib
 from datetime import datetime, timedelta
 import logging
 from psycopg2 import sql
-from typing import Optional # Added Optional type hint for clarity
+from typing import Optional, Dict, Any, List # Added type hints
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -390,10 +390,12 @@ PRICING OPTIONS:
 RULES:
 1. MUST cite exact metrics above with units (e.g., "BucketSizeBytes: Avg=150.2GB, Max=200.5GB")
 2. MUST use monthly forecast ${monthly_forecast:.2f} for savings calculations
-3. Each recommendation MUST be unique (storage class change vs lifecycle policy vs versioning vs replication)
-4. Calculate: savings_pct = ((current_monthly_forecast - new_monthly_cost) / current_monthly_forecast) * 100
-5. Anomalies: MUST use exact MaxDate from metrics, explain why value is unusual
-6. Contract assessment: Compare current monthly cost vs alternatives, explain good/bad
+3. PRICING shows storage costs per GB. Current forecast ${monthly_forecast:.2f} includes actual storage usage.
+   To calculate alternative storage class costs: use same storage capacity with alternative class pricing
+4. Each recommendation MUST be unique (storage class change vs lifecycle policy vs versioning vs replication)
+5. Calculate: savings_pct = ((current_monthly_forecast - alternative_class_cost) / current_monthly_forecast) * 100
+6. Anomalies: MUST use exact MaxDate from metrics, explain why value is unusual
+7. Contract assessment: Compare current monthly cost vs alternatives, explain good/bad
 
 OUTPUT (JSON only, NO markdown):
 {{

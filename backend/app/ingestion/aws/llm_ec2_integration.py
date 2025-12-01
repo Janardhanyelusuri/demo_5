@@ -427,17 +427,19 @@ PRICING OPTIONS:
 RULES:
 1. MUST cite exact metrics above with units (e.g., "CPU: Avg=15.2%, Max=45.8%")
 2. MUST use monthly forecast ${monthly_forecast:.2f} for savings calculations
-3. Each recommendation MUST be unique (downsize vs reserved instance vs savings plan vs schedule)
-4. Calculate: savings_pct = ((current_monthly_forecast - new_monthly_cost) / current_monthly_forecast) * 100
-5. Anomalies: MUST use exact MaxDate from metrics, explain why value is unusual
-6. Contract assessment: Compare current monthly cost vs alternatives, explain good/bad
+3. PRICING shows 24/7 costs. Current forecast ${monthly_forecast:.2f} is based on actual usage over {duration_days}d.
+   To calculate alternative costs: (alternative_hourly_rate / current_hourly_rate) * ${monthly_forecast:.2f}
+4. Each recommendation MUST be unique (downsize vs reserved instance vs savings plan vs schedule)
+5. Calculate: savings_pct = ((current_monthly_forecast - scaled_alternative_cost) / current_monthly_forecast) * 100
+6. Anomalies: MUST use exact MaxDate from metrics, explain why value is unusual
+7. Contract assessment: Compare current monthly cost vs alternatives, explain good/bad
 
 OUTPUT (JSON only, NO markdown):
 {{
   "recommendations": {{
     "effective_recommendation": {{
       "text": "Primary action with exact instance type from PRICING",
-      "explanation": "Based on [cite exact metrics with units from AVAILABLE METRICS] over {duration_days} days, current monthly forecast is ${monthly_forecast:.2f}. [Specific instance type from PRICING] costs [exact price]/mo, saving [exact amount].",
+      "explanation": "Based on [cite exact metrics with units from AVAILABLE METRICS] over {duration_days} days, current monthly forecast is ${monthly_forecast:.2f}. Scaling [Specific instance type from PRICING] hourly rate to same usage pattern = $[scaled cost]/mo, saving $[exact amount].",
       "saving_pct": <number calculated from monthly forecast>
     }},
     "additional_recommendation": [

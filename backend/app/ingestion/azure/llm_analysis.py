@@ -300,10 +300,12 @@ PRICING OPTIONS:
 RULES:
 1. MUST cite exact metrics above with units (e.g., "Capacity: Avg=150.2GB, Max=200.5GB")
 2. MUST use monthly forecast ${monthly_forecast:.2f} for savings calculations
-3. Each recommendation MUST be unique (tier change vs lifecycle policy vs replication config vs cleanup)
-4. Calculate: savings_pct = ((current_monthly_forecast - new_monthly_cost) / current_monthly_forecast) * 100
-5. Anomalies: MUST use exact MaxDate from metrics, explain why value is unusual
-6. Contract assessment: Compare current monthly cost vs alternatives, explain good/bad
+3. PRICING shows storage costs per GB. Current forecast ${monthly_forecast:.2f} includes actual storage usage.
+   To calculate alternative tier costs: use same storage capacity with alternative tier pricing
+4. Each recommendation MUST be unique (tier change vs lifecycle policy vs replication config vs cleanup)
+5. Calculate: savings_pct = ((current_monthly_forecast - alternative_tier_cost) / current_monthly_forecast) * 100
+6. Anomalies: MUST use exact MaxDate from metrics, explain why value is unusual
+7. Contract assessment: Compare current monthly cost vs alternatives, explain good/bad
 
 OUTPUT (JSON only, NO markdown):
 {{
@@ -563,17 +565,19 @@ PRICING OPTIONS:
 RULES:
 1. MUST cite exact metrics above with units (e.g., "CPU: Avg=15.2%, Max=45.8%")
 2. MUST use monthly forecast ${monthly_forecast:.2f} for savings calculations
-3. Each recommendation MUST be unique (downsize vs reserved instance vs schedule vs automation)
-4. Calculate: savings_pct = ((current_monthly_forecast - new_monthly_cost) / current_monthly_forecast) * 100
-5. Anomalies: MUST use exact MaxDate from metrics, explain why value is unusual
-6. Contract assessment: Compare current monthly cost vs alternatives, explain good/bad
+3. PRICING shows 24/7 costs. Current forecast ${monthly_forecast:.2f} is based on actual usage over {duration_days}d.
+   To calculate alternative costs: (alternative_hourly_rate / current_hourly_rate) * ${monthly_forecast:.2f}
+4. Each recommendation MUST be unique (downsize vs reserved instance vs schedule vs automation)
+5. Calculate: savings_pct = ((current_monthly_forecast - scaled_alternative_cost) / current_monthly_forecast) * 100
+6. Anomalies: MUST use exact MaxDate from metrics, explain why value is unusual
+7. Contract assessment: Compare current monthly cost vs alternatives, explain good/bad
 
 OUTPUT (JSON only, NO markdown):
 {{
   "recommendations": {{
     "effective_recommendation": {{
       "text": "Primary action with exact SKU name from PRICING",
-      "explanation": "Based on [cite exact metrics with units from AVAILABLE METRICS] over {duration_days} days, current monthly forecast is ${monthly_forecast:.2f}. [Specific SKU from PRICING] costs [exact price]/mo, saving [exact amount].",
+      "explanation": "Based on [cite exact metrics with units from AVAILABLE METRICS] over {duration_days} days, current monthly forecast is ${monthly_forecast:.2f}. Scaling [Specific SKU from PRICING] hourly rate to same usage pattern = $[scaled cost]/mo, saving $[exact amount].",
       "saving_pct": <number calculated from monthly forecast>
     }},
     "additional_recommendation": [
@@ -837,10 +841,11 @@ PRICING OPTIONS:
 RULES:
 1. MUST cite exact metrics above with units (e.g., "BytesInDDoS: Avg=150.2Bps, Max=500.5Bps")
 2. MUST use monthly forecast ${monthly_forecast:.2f} for savings calculations
-3. Each recommendation MUST be unique (deallocate unused vs change allocation method vs reserved IP vs DDoS protection)
-4. Calculate: savings_pct = ((current_monthly_forecast - new_monthly_cost) / current_monthly_forecast) * 100
-5. Anomalies: MUST use exact MaxDate from metrics, explain why value is unusual
-6. Contract assessment: Compare current monthly cost vs alternatives, explain good/bad
+3. PRICING shows 24/7 costs for Public IPs. Current forecast ${monthly_forecast:.2f} is based on actual usage over {duration_days}d.
+4. Each recommendation MUST be unique (deallocate unused vs change allocation method vs reserved IP vs DDoS protection)
+5. Calculate: savings_pct = ((current_monthly_forecast - alternative_cost) / current_monthly_forecast) * 100
+6. Anomalies: MUST use exact MaxDate from metrics, explain why value is unusual
+7. Contract assessment: Compare current monthly cost vs alternatives, explain good/bad
 
 OUTPUT (JSON only, NO markdown):
 {{
