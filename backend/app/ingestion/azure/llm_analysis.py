@@ -403,6 +403,9 @@ def _generate_compute_prompt(resource_data: dict, start_date: str, end_date: str
     region = resource_data.get("region", "eastus")
 
     pricing_context = ""
+    estimated_hours = 0  # Initialize
+    current_hourly_rate = 0  # Initialize
+
     if schema_name and current_sku and current_sku != "N/A":
         try:
             # Get current SKU pricing
@@ -460,6 +463,16 @@ def _generate_compute_prompt(resource_data: dict, start_date: str, end_date: str
 
             print(f"{'='*60}\n")
 
+            # Calculate estimated usage hours for clearer alternative cost calculations
+            if current_pricing and current_pricing.get('retail_price', 0) > 0:
+                current_hourly_rate = current_pricing['retail_price']
+                estimated_hours = billed_cost / current_hourly_rate
+                print(f"Estimated usage hours: {estimated_hours:.2f} hours over {duration_days} days")
+                print(f"Calculated from: ${billed_cost:.4f} / ${current_hourly_rate:.4f}/hr")
+            else:
+                estimated_hours = 0
+                current_hourly_rate = 0
+
             # Format pricing for LLM
             pricing_context = "\n\n" + format_vm_pricing_for_llm(current_pricing, alternative_pricing) + "\n"
         except Exception as e:
@@ -469,6 +482,7 @@ def _generate_compute_prompt(resource_data: dict, start_date: str, end_date: str
 
             # Fallback pricing on error - create both current and alternatives
             estimated_hourly = _estimate_vm_hourly_cost(current_sku)
+            current_hourly_rate = estimated_hourly
             current_pricing = {
                 'sku_name': current_sku,
                 'retail_price': estimated_hourly,
@@ -480,6 +494,9 @@ def _generate_compute_prompt(resource_data: dict, start_date: str, end_date: str
                 {'sku_name': f'{current_sku.split("_")[0]}_Smaller1', 'retail_price': estimated_hourly * 0.5, 'monthly_cost': estimated_hourly * 0.5 * 730},
                 {'sku_name': f'{current_sku.split("_")[0]}_Smaller2', 'retail_price': estimated_hourly * 0.75, 'monthly_cost': estimated_hourly * 0.75 * 730},
             ]
+            # Calculate estimated hours from fallback pricing
+            if current_hourly_rate > 0:
+                estimated_hours = billed_cost / current_hourly_rate
             pricing_context = "\n\n" + format_vm_pricing_for_llm(current_pricing, alternative_pricing) + "\n(ESTIMATED - Database unavailable)\n"
     else:
         pricing_context = "\n\nPRICING DATA: Not available (schema or SKU not provided)\n"
@@ -562,13 +579,19 @@ AVAILABLE METRICS (MUST USE):
 PRICING OPTIONS:
 {pricing_context}
 
+USAGE CALCULATION:
+- Current cost ${billed_cost:.4f} over {duration_days}d
+- Current hourly rate: ${current_hourly_rate:.4f}/hr
+- Estimated usage: {estimated_hours:.2f} hours
+- Monthly forecast: ${monthly_forecast:.2f}
+
 RULES:
 1. MUST cite exact metrics above with units (e.g., "CPU: Avg=15.2%, Max=45.8%")
 2. MUST use monthly forecast ${monthly_forecast:.2f} for savings calculations
-3. PRICING shows 24/7 costs. Current forecast ${monthly_forecast:.2f} is based on actual usage over {duration_days}d.
-   To calculate alternative costs: (alternative_hourly_rate / current_hourly_rate) * ${monthly_forecast:.2f}
+3. To calculate alternative costs: alternative_hourly_rate × {estimated_hours:.2f} hours
+   Example: If ALT1 = $0.05/hr, then ALT1 cost = $0.05 × {estimated_hours:.2f} = ${estimated_hours * 0.05 if estimated_hours > 0 else 0:.4f}
 4. Each recommendation MUST be unique (downsize vs reserved instance vs schedule vs automation)
-5. Calculate: savings_pct = ((current_monthly_forecast - scaled_alternative_cost) / current_monthly_forecast) * 100
+5. Calculate: savings_pct = ((monthly_forecast - alternative_cost) / monthly_forecast) * 100
 6. Anomalies: MUST use exact MaxDate from metrics, explain why value is unusual
 7. Contract assessment: Compare current monthly cost vs alternatives, explain good/bad
 

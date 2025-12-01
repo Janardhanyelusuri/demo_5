@@ -297,6 +297,9 @@ def generate_ec2_prompt(instance_data: Dict[str, Any], monthly_forecast: float, 
 
     pricing_context = ""
     has_pricing = False
+    estimated_hours = 0  # Initialize
+    current_hourly_rate = 0  # Initialize
+
     if schema_name and instance_type and instance_type != 'Unknown':
         try:
             # Get current instance type pricing
@@ -355,6 +358,16 @@ def generate_ec2_prompt(instance_data: Dict[str, Any], monthly_forecast: float, 
 
             print(f"{'='*60}\n")
 
+            # Calculate estimated usage hours for clearer alternative cost calculations
+            if current_pricing and current_pricing.get('price_per_hour', 0) > 0:
+                current_hourly_rate = current_pricing['price_per_hour']
+                estimated_hours = billed_cost / current_hourly_rate
+                print(f"Estimated usage hours: {estimated_hours:.2f} hours over {duration_days} days")
+                print(f"Calculated from: ${billed_cost:.4f} / ${current_hourly_rate:.4f}/hr")
+            else:
+                estimated_hours = 0
+                current_hourly_rate = 0
+
             # Format pricing for LLM
             pricing_context = "\n\n" + format_ec2_pricing_for_llm(current_pricing, alternative_pricing) + "\n"
         except Exception as e:
@@ -364,7 +377,11 @@ def generate_ec2_prompt(instance_data: Dict[str, Any], monthly_forecast: float, 
 
             # Fallback pricing on error
             estimated_hourly = _estimate_ec2_hourly_cost(instance_type)
+            current_hourly_rate = estimated_hourly
             has_pricing = True
+            # Calculate estimated hours from fallback pricing
+            if current_hourly_rate > 0:
+                estimated_hours = billed_cost / current_hourly_rate
             pricing_context = f"\n\nPRICING DATA (ESTIMATED - Database unavailable):\nCurrent instance: {instance_type}\nEstimated cost: {estimated_hourly:.4f} USD/hour (~{estimated_hourly * 730:.2f} USD/month)\n"
     else:
         pricing_context = "\n\nPRICING DATA: Not available (schema or instance type not provided)\n"
@@ -424,13 +441,19 @@ AVAILABLE METRICS (MUST USE):
 PRICING OPTIONS:
 {pricing_context}
 
+USAGE CALCULATION:
+- Current cost ${billed_cost:.4f} over {duration_days}d
+- Current hourly rate: ${current_hourly_rate:.4f}/hr
+- Estimated usage: {estimated_hours:.2f} hours
+- Monthly forecast: ${monthly_forecast:.2f}
+
 RULES:
 1. MUST cite exact metrics above with units (e.g., "CPU: Avg=15.2%, Max=45.8%")
 2. MUST use monthly forecast ${monthly_forecast:.2f} for savings calculations
-3. PRICING shows 24/7 costs. Current forecast ${monthly_forecast:.2f} is based on actual usage over {duration_days}d.
-   To calculate alternative costs: (alternative_hourly_rate / current_hourly_rate) * ${monthly_forecast:.2f}
+3. To calculate alternative costs: alternative_hourly_rate × {estimated_hours:.2f} hours
+   Example: If ALT1 = $0.05/hr, then ALT1 cost = $0.05 × {estimated_hours:.2f} = ${estimated_hours * 0.05 if estimated_hours > 0 else 0:.4f}
 4. Each recommendation MUST be unique (downsize vs reserved instance vs savings plan vs schedule)
-5. Calculate: savings_pct = ((current_monthly_forecast - scaled_alternative_cost) / current_monthly_forecast) * 100
+5. Calculate: savings_pct = ((monthly_forecast - alternative_cost) / monthly_forecast) * 100
 6. Anomalies: MUST use exact MaxDate from metrics, explain why value is unusual
 7. Contract assessment: Compare current monthly cost vs alternatives, explain good/bad
 
