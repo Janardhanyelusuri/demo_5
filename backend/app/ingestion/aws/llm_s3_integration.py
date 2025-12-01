@@ -216,12 +216,28 @@ def _format_s3_metrics_for_llm(bucket_data: dict) -> dict:
     return formatted_metrics
 
 
-def generate_s3_prompt(bucket_data: dict) -> str:
+def _extrapolate_costs(billed_cost: float, duration_days: int) -> Dict[str, float]:
+    """Helper to calculate monthly/annual forecasts."""
+    if duration_days == 0:
+        return {"monthly": 0.0, "annually": 0.0}
+
+    avg_daily_cost = billed_cost / duration_days
+    print(f"Avg daily cost calculated: {avg_daily_cost}")
+    # Use 30.4375 for average days in a month (365.25 / 12)
+    monthly = avg_daily_cost * 30.4375
+    annually = avg_daily_cost * 365
+    print(f"Extrapolated monthly: {monthly}, annually: {annually}")
+    return {"monthly": monthly, "annually": annually}
+
+
+def generate_s3_prompt(bucket_data: dict, monthly_forecast: float, annual_forecast: float) -> str:
     """
     Generate LLM prompt for S3 bucket optimization recommendations.
 
     Args:
         bucket_data: Dictionary containing bucket metrics and cost data
+        monthly_forecast: Extrapolated monthly cost forecast
+        annual_forecast: Extrapolated annual cost forecast
 
     Returns:
         Formatted prompt string for the LLM
@@ -242,6 +258,7 @@ def generate_s3_prompt(bucket_data: dict) -> str:
     schema_name = bucket_data.get('schema_name', '')
 
     pricing_context = ""
+    has_pricing = False
     if schema_name:
         try:
             s3_pricing = get_s3_storage_class_pricing(schema_name, region)
@@ -255,6 +272,7 @@ def generate_s3_prompt(bucket_data: dict) -> str:
             print(f"CURRENT STORAGE CLASS: {current_class} (assumed)")
 
             if s3_pricing and len(s3_pricing) > 0:
+                has_pricing = True
                 print(f"\nS3 STORAGE CLASS PRICING (Top 5):")
                 for idx, (storage_class, info) in enumerate(list(s3_pricing.items())[:5], 1):
                     marker = "← CURRENT" if storage_class == current_class else ""
@@ -264,6 +282,7 @@ def generate_s3_prompt(bucket_data: dict) -> str:
                 print(f"Using fallback pricing estimates")
 
                 # Fallback pricing for common S3 storage classes
+                has_pricing = True
                 s3_pricing = {
                     'STANDARD': {'storage_class': 'STANDARD', 'price_per_unit': 0.023, 'unit': 'GB', 'description': 'S3 Standard Storage'},
                     'STANDARD_IA': {'storage_class': 'STANDARD_IA', 'price_per_unit': 0.0125, 'unit': 'GB', 'description': 'S3 Standard-IA Storage'},
@@ -288,52 +307,128 @@ def generate_s3_prompt(bucket_data: dict) -> str:
             traceback.print_exc()
 
             # Fallback pricing on error
+            has_pricing = True
             pricing_context = f"\n\nPRICING DATA (ESTIMATED - Database unavailable):\nStandard: ~0.023 USD/GB, Standard-IA: ~0.0125 USD/GB, Glacier: ~0.004 USD/GB\n"
 
-    # Build metrics list for base_of_recommendations
+    # Check if we have metrics available
+    has_metrics = bool(formatted_metrics)
+
+    # Build metrics list for base_of_recommendations (with units and quotes)
     metrics_list = []
     for metric_name, values in formatted_metrics.items():
         if values.get('Avg') is not None:
-            metrics_list.append(f"{metric_name}: Avg={values['Avg']:.2f}, Max={values.get('Max', 0):.2f}")
+            # Extract unit from metric name if it has one
+            if 'Size' in metric_name or 'Bytes' in metric_name or 'Storage' in metric_name:
+                unit = 'GB'
+            elif 'Requests' in metric_name or 'Count' in metric_name:
+                unit = 'count'
+            elif 'Latency' in metric_name:
+                unit = 'ms'
+            else:
+                unit = ''
 
-    # Build explicit metric summary
+            if unit:
+                metrics_list.append(f'"{metric_name}: Avg={values["Avg"]:.2f}{unit}, Max={values.get("Max", 0):.2f}{unit}"')
+            else:
+                metrics_list.append(f'"{metric_name}: Avg={values["Avg"]:.2f}, Max={values.get("Max", 0):.2f}"')
+
+    metrics_list_str = '[' + ', '.join(metrics_list) + ']' if metrics_list else '[]'
+
+    # Build explicit metric summary (with units)
     metrics_summary = []
     for metric_name, values in formatted_metrics.items():
         if values.get('Avg') is not None:
-            metrics_summary.append(f"- {metric_name}: Avg={values['Avg']:.2f}, Max={values.get('Max', 0):.2f}")
+            if 'Size' in metric_name or 'Bytes' in metric_name or 'Storage' in metric_name:
+                unit = 'GB'
+            elif 'Requests' in metric_name or 'Count' in metric_name:
+                unit = 'count'
+            elif 'Latency' in metric_name:
+                unit = 'ms'
+            else:
+                unit = ''
+
+            if unit:
+                metrics_summary.append(f"- {metric_name}: Avg={values['Avg']:.2f}{unit}, Max={values.get('Max', 0):.2f}{unit}, MaxDate={values.get('MaxDate', 'N/A')}")
+            else:
+                metrics_summary.append(f"- {metric_name}: Avg={values['Avg']:.2f}, Max={values.get('Max', 0):.2f}, MaxDate={values.get('MaxDate', 'N/A')}")
+
     metrics_text = "\n".join(metrics_summary) if metrics_summary else "No metrics available"
 
-    prompt = f"""AWS S3 FinOps. Analyze {bucket_name} | Region: {region} | {start_date} to {end_date} ({duration_days}d) | Cost: ${billed_cost:.2f}
+    # Guard clause for missing data
+    if not has_pricing or not has_metrics or bucket_name == "Unknown" or bucket_name == "None":
+        return f"""AWS S3 FinOps. Analyze {bucket_name} | Region: {region} | {start_date} to {end_date} ({duration_days}d) | Cost: ${billed_cost:.2f}
 
-AVAILABLE METRICS (MUST USE THESE):
+AVAILABLE METRICS:
 {metrics_text}
 
 PRICING OPTIONS:
 {pricing_context}
 
-CRITICAL RULES:
-1. MUST use actual metric values from AVAILABLE METRICS
-2. NEVER say "no metrics" - USE THE METRICS SHOWN
-3. Cite specific numbers (GB, requests/day)
-4. Pick SPECIFIC storage class from PRICING OPTIONS
-5. base_of_recommendations = {metrics_list}
+ISSUE: {'Missing pricing data' if not has_pricing else 'Missing metrics data' if not has_metrics else 'Unknown bucket'}
 
 OUTPUT (JSON only):
 {{
   "recommendations": {{
-    "effective_recommendation": {{"text": "Specific action with storage class", "explanation": "Based on [cite metrics + pricing]", "saving_pct": <number>}},
-    "additional_recommendation": [
-      {{"text": "Specific action", "explanation": "Cite metrics + pricing", "saving_pct": <number>}},
-      {{"text": "Specific action", "explanation": "Cite metrics + pricing", "saving_pct": <number>}}
-    ],
-    "base_of_recommendations": {metrics_list}
+    "effective_recommendation": {{"text": "Unable to provide recommendations", "explanation": "{'Pricing data unavailable for storage class analysis' if not has_pricing else 'No metrics available for resource analysis' if not has_metrics else 'Bucket information not available'}", "saving_pct": 0}},
+    "additional_recommendation": [],
+    "base_of_recommendations": {metrics_list_str}
   }},
-  "cost_forecasting": {{"monthly": 0, "annually": 0}},
+  "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}},
+  "anomalies": [],
+  "contract_deal": {{"assessment": "unknown", "for_sku": "S3 Standard", "reason": "Insufficient data for assessment", "monthly_saving_pct": 0, "annual_saving_pct": 0}}
+}}"""
+
+    prompt = f"""AWS S3 FinOps. Analyze {bucket_name} | Region: {region} | {start_date} to {end_date} ({duration_days}d)
+Current Cost: ${billed_cost:.2f} for {duration_days}d | Forecast: ${monthly_forecast:.2f}/mo, ${annual_forecast:.2f}/yr
+
+AVAILABLE METRICS (MUST USE):
+{metrics_text}
+
+PRICING OPTIONS:
+{pricing_context}
+
+RULES:
+1. MUST cite exact metrics above with units (e.g., "BucketSizeBytes: Avg=150.2GB, Max=200.5GB")
+2. MUST use monthly forecast ${monthly_forecast:.2f} for savings calculations
+3. Each recommendation MUST be unique (storage class change vs lifecycle policy vs versioning vs replication)
+4. Calculate: savings_pct = ((current_monthly_forecast - new_monthly_cost) / current_monthly_forecast) * 100
+5. Anomalies: MUST use exact MaxDate from metrics, explain why value is unusual
+6. Contract assessment: Compare current monthly cost vs alternatives, explain good/bad
+
+OUTPUT (JSON only, NO markdown):
+{{
+  "recommendations": {{
+    "effective_recommendation": {{
+      "text": "Primary action with exact storage class from PRICING",
+      "explanation": "Based on [cite exact metrics with units from AVAILABLE METRICS] over {duration_days} days, current monthly forecast is ${monthly_forecast:.2f}. [Specific storage class from PRICING] costs [exact price]/GB/mo for [capacity]GB, saving [exact amount].",
+      "saving_pct": <number calculated from monthly forecast>
+    }},
+    "additional_recommendation": [
+      {{
+        "text": "DIFFERENT recommendation type (e.g., Lifecycle policy to transition old data)",
+        "explanation": "With [cite metrics], moving objects older than 90 days to Glacier at [price from PRICING] saves [amount]/mo.",
+        "saving_pct": <number>
+      }},
+      {{
+        "text": "THIRD unique recommendation (e.g., Disable versioning if not needed)",
+        "explanation": "Given [storage metrics], versioning adds [%] overhead. Disabling saves ~[%] on storage costs.",
+        "saving_pct": <number>
+      }}
+    ],
+    "base_of_recommendations": {metrics_list_str}
+  }},
+  "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}},
   "anomalies": [
-    {{"metric_name": "From AVAILABLE METRICS", "timestamp": "MaxDate", "value": <number>, "reason_short": "Why"}},
-    {{"metric_name": "From AVAILABLE METRICS", "timestamp": "MaxDate", "value": <number>, "reason_short": "Why"}}
+    {{"metric_name": "Exact name from AVAILABLE METRICS", "timestamp": "Exact MaxDate from metrics", "value": <exact Max value from metrics>, "reason_short": "Explain why this max value is unusual (spike/drop/sustained high)"}},
+    {{"metric_name": "Another metric name", "timestamp": "Its MaxDate", "value": <its Max value>, "reason_short": "Why unusual for this resource type"}}
   ],
-  "contract_deal": {{"assessment": "good|bad|unknown", "for_sku": "S3 Standard", "reason": "Compare using PRICING", "monthly_saving_pct": <number>, "annual_saving_pct": <number>}}
+  "contract_deal": {{
+    "assessment": "good|bad|unknown",
+    "for_sku": "S3 Standard",
+    "reason": "Current monthly forecast ${monthly_forecast:.2f} vs [specific storage class from PRICING] at [price]/GB = [comparison]. {'Good deal if current is cheaper' if billed_cost < monthly_forecast else 'Bad deal if overpaying'}",
+    "monthly_saving_pct": <number>,
+    "annual_saving_pct": <number>
+  }}
 }}"""
     return prompt
 
@@ -349,7 +444,13 @@ def get_s3_recommendation_single(bucket_data: dict) -> dict:
         Dictionary containing recommendations or None if error
     """
     try:
-        prompt = generate_s3_prompt(bucket_data)
+        # Calculate cost forecasts
+        billed_cost = bucket_data.get('billed_cost', 0.0)
+        duration_days = int(bucket_data.get('duration_days', 30) or 30)
+        forecast = _extrapolate_costs(billed_cost, duration_days)
+
+        # Generate prompt with forecasts
+        prompt = generate_s3_prompt(bucket_data, forecast['monthly'], forecast['annually'])
         llm_response = llm_call(prompt)
 
         if not llm_response:
@@ -365,7 +466,10 @@ def get_s3_recommendation_single(bucket_data: dict) -> dict:
                 llm_response = llm_response.split('```')[1].split('```')[0].strip()
 
             recommendation = json.loads(llm_response)
+            # Add resource_id and forecasts to the recommendation
             recommendation['resource_id'] = bucket_data.get('bucket_name', 'Unknown')
+            recommendation['_forecast_monthly'] = forecast['monthly']
+            recommendation['_forecast_annual'] = forecast['annually']
             return recommendation
         except json.JSONDecodeError:
             LOG.warning(f"Failed to parse JSON for bucket {bucket_data.get('bucket_name')}")
