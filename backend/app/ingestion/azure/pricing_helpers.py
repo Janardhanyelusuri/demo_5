@@ -258,23 +258,14 @@ def format_vm_pricing_for_llm(current_pricing: Optional[Dict], alternatives: Lis
     output = []
 
     if current_pricing:
-        output.append(f"CURRENT: {current_pricing['sku_name']} = {current_pricing['retail_price']:.4f}/hr ({current_pricing['monthly_cost']:.2f}/mo {current_pricing['currency_code']})")
+        output.append(f"CURRENT: {current_pricing['sku_name']} = ${current_pricing['retail_price']:.4f}/hr")
     else:
         output.append("CURRENT: Not available")
 
     if alternatives:
         # Only send top 3 alternatives to reduce token usage
-        curr_code = current_pricing.get('currency_code', 'USD') if current_pricing else 'USD'
         for i, alt in enumerate(alternatives[:3], 1):
-            savings = ""
-            if current_pricing and current_pricing['monthly_cost'] > 0:
-                savings_amt = current_pricing['monthly_cost'] - alt['monthly_cost']
-                savings_pct = (savings_amt / current_pricing['monthly_cost']) * 100
-                if savings_pct > 0:
-                    savings = f" (Save {savings_pct:.0f}%)"
-                elif savings_pct < 0:
-                    savings = f" (+{abs(savings_pct):.0f}%)"
-            output.append(f"ALT{i}: {alt['sku_name']} = {alt['retail_price']:.4f}/hr ({alt['monthly_cost']:.2f}/mo){savings}")
+            output.append(f"ALT{i}: {alt['sku_name']} = ${alt['retail_price']:.4f}/hr")
     else:
         output.append("ALTERNATIVES: None available")
 
@@ -322,6 +313,6 @@ def format_ip_pricing_for_llm(ip_pricing: Dict) -> str:
     output = []
     # Only send top 2 options to reduce token usage
     for idx, opt in enumerate(options[:2], 1):
-        output.append(f"OPT{idx}: {opt['meter_name']} = {opt['retail_price']:.5f}/hr ({opt['monthly_cost']:.2f}/mo)")
+        output.append(f"OPT{idx}: {opt['meter_name']} = ${opt['retail_price']:.5f}/hr")
 
     return "\n".join(output)

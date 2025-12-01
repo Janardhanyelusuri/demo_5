@@ -253,23 +253,14 @@ def format_ec2_pricing_for_llm(current_pricing: Optional[Dict], alternatives: Li
     output = []
 
     if current_pricing:
-        output.append(f"CURRENT: {current_pricing['instance_type']} ({current_pricing['vcpu']}vCPU, {current_pricing['memory']}) = {current_pricing['price_per_hour']:.4f}/hr ({current_pricing['monthly_cost']:.2f}/mo {current_pricing['currency']})")
+        output.append(f"CURRENT: {current_pricing['instance_type']} ({current_pricing['vcpu']}vCPU, {current_pricing['memory']}) = ${current_pricing['price_per_hour']:.4f}/hr")
     else:
         output.append("CURRENT: Not available")
 
     if alternatives:
         # Only send top 3 alternatives to reduce token usage
-        curr_currency = current_pricing.get('currency', 'USD') if current_pricing else 'USD'
         for i, alt in enumerate(alternatives[:3], 1):
-            savings = ""
-            if current_pricing and current_pricing['monthly_cost'] > 0:
-                savings_amt = current_pricing['monthly_cost'] - alt['monthly_cost']
-                savings_pct = (savings_amt / current_pricing['monthly_cost']) * 100
-                if savings_pct > 0:
-                    savings = f" (Save {savings_pct:.0f}%)"
-                elif savings_pct < 0:
-                    savings = f" (+{abs(savings_pct):.0f}%)"
-            output.append(f"ALT{i}: {alt['instance_type']} ({alt['vcpu']}vCPU, {alt['memory']}) = {alt['price_per_hour']:.4f}/hr ({alt['monthly_cost']:.2f}/mo){savings}")
+            output.append(f"ALT{i}: {alt['instance_type']} ({alt['vcpu']}vCPU, {alt['memory']}) = ${alt['price_per_hour']:.4f}/hr")
     else:
         output.append("ALTERNATIVES: None available")
 
