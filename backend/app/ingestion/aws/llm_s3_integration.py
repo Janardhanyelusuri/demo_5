@@ -290,86 +290,41 @@ def generate_s3_prompt(bucket_data: dict) -> str:
             # Fallback pricing on error
             pricing_context = f"\n\nPRICING DATA (ESTIMATED - Database unavailable):\nStandard: ~0.023 USD/GB, Standard-IA: ~0.0125 USD/GB, Glacier: ~0.004 USD/GB\n"
 
-    prompt = f"""AWS S3 FinOps. Analyze metrics, output JSON only.
+    # Build metrics list for base_of_recommendations
+    metrics_list = []
+    for metric_name, values in formatted_metrics.items():
+        if values.get('Avg') is not None:
+            metrics_list.append(f"{metric_name}: Avg={values['Avg']:.2f}, Max={values.get('Max', 0):.2f}")
 
-CONTEXT: {bucket_name} | Region: {region} | {start_date} to {end_date} ({duration_days}d) | Cost: {billed_cost:.2f}
+    prompt = f"""AWS S3 FinOps. Analyze {bucket_name} | Region: {region} | {start_date} to {end_date} ({duration_days}d) | Cost: ${billed_cost:.2f}
 
-METRICS:
-{json.dumps(formatted_metrics, indent=2)}
-{pricing_context}
+METRICS: {json.dumps(formatted_metrics, indent=2)}
 
-DECISION PROCESS (STRICT ORDER):
-1. **ANALYZE METRICS FIRST**: Examine storage size (GB), request counts, access patterns from METRICS section
-2. **DETERMINE ACTION**: Based ONLY on metrics, decide: Change storage class (low access → Glacier/IA), Enable lifecycle policy, Disable versioning, or No change
-3. **FIND ALTERNATIVES**: If action needed, use PRICING DATA to find exact storage class names and per-GB costs
-4. **CALCULATE SAVINGS**: Use actual pricing from PRICING DATA to compute saving_pct
+PRICING: {pricing_context}
 
-CRITICAL RULES:
-- ALL metric values MUST come from METRICS section above - NEVER invent values
-- ALL storage class names and costs MUST come from PRICING DATA section - NEVER invent pricing
-- BANNED WORDS: "consider", "review", "optimize", "significant", "could", "should", "it is recommended", "may", "might"
-- USE DECISIVE LANGUAGE: "Move to S3 Glacier", "Implement lifecycle policy", "Change to Intelligent-Tiering"
-- Express savings as percentages: saving_pct = ((current_cost - new_cost) / current_cost) * 100
-- Include units in ALL values: GB, requests, objects, %, per GB
-- For contract_deal: Compare current storage class vs alternative classes using PRICING DATA
+RULES:
+- Use ONLY data from METRICS & PRICING (no invented values)
+- Decisive language only (banned: "consider", "review", "optimize", "could", "should")
+- savings_pct = ((current - new) / current) * 100
+- base_of_recommendations MUST list metrics analyzed
 
-JSON OUTPUT (NO placeholders - use actual values from METRICS and PRICING DATA):
+JSON OUTPUT:
 {{
   "recommendations": {{
-    "effective_recommendation": {{
-      "text": "Action verb + target storage class from PRICING DATA",
-      "explanation": "Cite specific metrics (e.g., BucketSizeBytes 500GB, GetRequests 10/day) and pricing from PRICING DATA",
-      "saving_pct": 0
-    }},
+    "effective_recommendation": {{"text": "Action + storage class from PRICING", "explanation": "Cite metrics & pricing", "saving_pct": 0}},
     "additional_recommendation": [
-      {{
-        "text": "Action verb + specific recommendation with pricing",
-        "explanation": "Cite actual metrics and pricing",
-        "saving_pct": 0
-      }},
-      {{
-        "text": "Action verb + specific recommendation with pricing",
-        "explanation": "Cite actual metrics and pricing",
-        "saving_pct": 0
-      }},
-      {{
-        "text": "Action verb + specific recommendation with pricing",
-        "explanation": "Cite actual metrics and pricing",
-        "saving_pct": 0
-      }}
+      {{"text": "Action + recommendation", "explanation": "Cite metrics & pricing", "saving_pct": 0}},
+      {{"text": "Action + recommendation", "explanation": "Cite metrics & pricing", "saving_pct": 0}}
     ],
-    "base_of_recommendations": []
+    "base_of_recommendations": {metrics_list}
   }},
   "cost_forecasting": {{"monthly": 0, "annually": 0}},
   "anomalies": [
-    {{
-      "metric_name": "Exact name from METRICS",
-      "timestamp": "Exact MaxDate from METRICS",
-      "value": 0,
-      "reason_short": "Explain using metric context"
-    }},
-    {{
-      "metric_name": "Exact name from METRICS",
-      "timestamp": "Exact MaxDate from METRICS",
-      "value": 0,
-      "reason_short": "Explain using metric context"
-    }},
-    {{
-      "metric_name": "Exact name from METRICS",
-      "timestamp": "Exact MaxDate from METRICS",
-      "value": 0,
-      "reason_short": "Explain using metric context"
-    }}
+    {{"metric_name": "From METRICS", "timestamp": "MaxDate from METRICS", "value": 0, "reason_short": "Why anomaly"}},
+    {{"metric_name": "From METRICS", "timestamp": "MaxDate from METRICS", "value": 0, "reason_short": "Why anomaly"}}
   ],
-  "contract_deal": {{
-    "assessment": "good|bad|unknown",
-    "for_sku": "S3 Standard",
-    "reason": "Compare current vs alternative storage classes using PRICING DATA",
-    "monthly_saving_pct": 0,
-    "annual_saving_pct": 0
-  }}
-}}
-"""
+  "contract_deal": {{"assessment": "good|bad|unknown", "for_sku": "S3 Standard", "reason": "Compare current vs alternatives", "monthly_saving_pct": 0, "annual_saving_pct": 0}}
+}}"""
     return prompt
 
 

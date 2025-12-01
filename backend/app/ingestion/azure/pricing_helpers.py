@@ -246,10 +246,11 @@ def get_public_ip_pricing_context(conn, schema_name: str, region: str = "eastus"
 def format_vm_pricing_for_llm(current_pricing: Optional[Dict], alternatives: List[Dict]) -> str:
     """
     Format VM pricing data for LLM context.
+    Condensed format to reduce token usage.
 
     Args:
         current_pricing: Current SKU pricing dict
-        alternatives: List of alternative SKU pricing dicts
+        alternatives: List of alternative SKU pricing dicts (max 3 will be used)
 
     Returns:
         Formatted string for LLM prompt
@@ -257,30 +258,25 @@ def format_vm_pricing_for_llm(current_pricing: Optional[Dict], alternatives: Lis
     output = []
 
     if current_pricing:
-        output.append("CURRENT VM PRICING:")
-        output.append(f"- SKU: {current_pricing['sku_name']}")
-        output.append(f"- Hourly Rate: {current_pricing['retail_price']:.4f} {current_pricing['currency_code']}")
-        output.append(f"- Monthly Cost: {current_pricing['monthly_cost']:.2f} {current_pricing['currency_code']}")
-        output.append(f"- Unit: {current_pricing['unit_of_measure']}")
+        output.append(f"CURRENT: {current_pricing['sku_name']} = {current_pricing['retail_price']:.4f}/hr ({current_pricing['monthly_cost']:.2f}/mo {current_pricing['currency_code']})")
     else:
-        output.append("CURRENT VM PRICING: Not available in pricing database")
+        output.append("CURRENT: Not available")
 
     if alternatives:
-        output.append("\nALTERNATIVE VM SKUs (sorted by price):")
-        curr_code = current_pricing.get('currency_code', '') if current_pricing else ''
-        for i, alt in enumerate(alternatives[:5], 1):
-            output.append(f"{i}. {alt['sku_name']}: {alt['retail_price']:.4f}/hr ({alt['monthly_cost']:.2f}/month {curr_code})")
-
+        # Only send top 3 alternatives to reduce token usage
+        curr_code = current_pricing.get('currency_code', 'USD') if current_pricing else 'USD'
+        for i, alt in enumerate(alternatives[:3], 1):
+            savings = ""
             if current_pricing and current_pricing['monthly_cost'] > 0:
-                savings = current_pricing['monthly_cost'] - alt['monthly_cost']
-                savings_pct = (savings / current_pricing['monthly_cost']) * 100
-
-                if savings > 0:
-                    output.append(f"   💰 Save {savings:.2f}/month ({savings_pct:.1f}% reduction)")
-                elif savings < 0:
-                    output.append(f"   💸 Cost increase {abs(savings):.2f}/month ({abs(savings_pct):.1f}% more)")
+                savings_amt = current_pricing['monthly_cost'] - alt['monthly_cost']
+                savings_pct = (savings_amt / current_pricing['monthly_cost']) * 100
+                if savings_pct > 0:
+                    savings = f" (Save {savings_pct:.0f}%)"
+                elif savings_pct < 0:
+                    savings = f" (+{abs(savings_pct):.0f}%)"
+            output.append(f"ALT{i}: {alt['sku_name']} = {alt['retail_price']:.4f}/hr ({alt['monthly_cost']:.2f}/mo){savings}")
     else:
-        output.append("\nALTERNATIVE VM SKUs: Not available in pricing database")
+        output.append("ALTERNATIVES: None available")
 
     return "\n".join(output)
 
@@ -288,6 +284,7 @@ def format_vm_pricing_for_llm(current_pricing: Optional[Dict], alternatives: Lis
 def format_storage_pricing_for_llm(storage_pricing: Dict) -> str:
     """
     Format storage pricing data for LLM context.
+    Condensed format to reduce token usage.
 
     Args:
         storage_pricing: Storage pricing dict by tier
@@ -296,12 +293,12 @@ def format_storage_pricing_for_llm(storage_pricing: Dict) -> str:
         Formatted string for LLM prompt
     """
     if not storage_pricing:
-        return "STORAGE PRICING: Not available in pricing database"
+        return "STORAGE PRICING: Not available"
 
-    output = ["STORAGE PRICING OPTIONS:"]
-
-    for tier, info in list(storage_pricing.items())[:5]:
-        output.append(f"- {info['meter_name']}: {info['retail_price']:.6f} per {info['unit_of_measure']}")
+    output = []
+    # Only send top 3 tiers to reduce token usage
+    for idx, (tier, info) in enumerate(list(storage_pricing.items())[:3], 1):
+        output.append(f"TIER{idx}: {info['meter_name']} = {info['retail_price']:.5f}/{info['unit_of_measure']}")
 
     return "\n".join(output)
 
@@ -309,6 +306,7 @@ def format_storage_pricing_for_llm(storage_pricing: Dict) -> str:
 def format_ip_pricing_for_llm(ip_pricing: Dict) -> str:
     """
     Format public IP pricing data for LLM context.
+    Condensed format to reduce token usage.
 
     Args:
         ip_pricing: IP pricing dict
@@ -319,11 +317,11 @@ def format_ip_pricing_for_llm(ip_pricing: Dict) -> str:
     options = ip_pricing.get('options', [])
 
     if not options:
-        return "PUBLIC IP PRICING: Not available in pricing database"
+        return "PUBLIC IP PRICING: Not available"
 
-    output = ["PUBLIC IP PRICING:"]
-
-    for opt in options:
-        output.append(f"- {opt['meter_name']}: {opt['retail_price']:.6f}/hr ({opt['monthly_cost']:.2f}/month)")
+    output = []
+    # Only send top 2 options to reduce token usage
+    for idx, opt in enumerate(options[:2], 1):
+        output.append(f"OPT{idx}: {opt['meter_name']} = {opt['retail_price']:.5f}/hr ({opt['monthly_cost']:.2f}/mo)")
 
     return "\n".join(output)
