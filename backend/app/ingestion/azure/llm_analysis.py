@@ -284,7 +284,7 @@ RULES:
    - Alt monthly cost = tier_price_per_GB × capacity_GB
    - Savings $ = ${monthly_forecast:.2f} - alt_monthly_cost
    - savings_pct = (savings $ / ${monthly_forecast:.2f}) × 100
-   - Example: "Current: ${monthly_forecast:.2f}/mo, Alt: $0.05/GB × 100GB = $5/mo, Savings: ${monthly_forecast:.2f} - $5 = $X ({savings_pct:.1f}%)"
+   - Example: "Current: ${monthly_forecast:.2f}/mo, Alt: $0.05/GB × 100GB = $5/mo, Savings: ${monthly_forecast:.2f} - $5 = $X (Y%)"
 3. CRITICAL: Only recommend if savings $ > 0. If savings $ ≤ 0, DO NOT recommend (costs more or same). Skip that recommendation.
 4. Each recommendation must be DIFFERENT ACTION CATEGORY. Do NOT give same action 3 times (e.g., NOT three tier changes). Consider: tier changes, lifecycle policies, replication configs, versioning/cleanup, reserved capacity
 5. Anomalies: metric name, timestamp, value, reason
@@ -535,7 +535,7 @@ RULES:
    - Alt monthly cost = alt_hourly_rate × {estimated_hours:.2f}hrs/month
    - Savings $ = ${monthly_forecast:.2f} - alt_monthly_cost
    - savings_pct = (savings $ / ${monthly_forecast:.2f}) × 100
-   - Example: "Current: ${monthly_forecast:.2f}/mo, Alt: $0.50/hr × {estimated_hours:.2f}hrs/mo = $X/mo, Savings: ${monthly_forecast:.2f} - $X = $Y ({savings_pct:.1f}%)"
+   - Example: "Current: ${monthly_forecast:.2f}/mo, Alt: $0.50/hr × {estimated_hours:.2f}hrs/mo = $X/mo, Savings: ${monthly_forecast:.2f} - $X = $Y (Z%)"
 3. CRITICAL: Only recommend if savings $ > 0. If savings $ ≤ 0, DO NOT recommend (costs more or same). Skip that recommendation.
 4. Each recommendation must be DIFFERENT ACTION CATEGORY. Do NOT give same action 3 times (e.g., NOT resize to 3 different SKUs). Consider: SKU changes, pricing model changes (reserved/spot), usage schedules, feature optimizations
 5. Anomalies: metric name, timestamp, value, reason
@@ -772,7 +772,7 @@ RULES:
 2. Show ALL calculations in explanation:
    - Savings $ = ${monthly_forecast:.2f} - alt_monthly_cost
    - savings_pct = (savings $ / ${monthly_forecast:.2f}) × 100
-   - Example: "Current: ${monthly_forecast:.2f}/mo, Alt: $X/mo, Savings: ${monthly_forecast:.2f} - $X = $Y ({savings_pct:.1f}%)"
+   - Example: "Current: ${monthly_forecast:.2f}/mo, Alt: $X/mo, Savings: ${monthly_forecast:.2f} - $X = $Y (Z%)"
 3. CRITICAL: Only recommend if savings $ > 0. If savings $ ≤ 0, DO NOT recommend (costs more or same). Skip that recommendation.
 4. Each recommendation must be DIFFERENT ACTION CATEGORY. Do NOT give same action 3 times. Consider: deallocation/allocation method, reserved pricing, DDoS protection, SKU changes
 5. Anomalies: metric name, timestamp, value, reason

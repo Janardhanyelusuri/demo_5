@@ -432,7 +432,7 @@ RULES:
    - Alt monthly cost = alt_hourly_rate × {estimated_hours:.2f}hrs/month
    - Savings $ = ${monthly_forecast:.2f} - alt_monthly_cost
    - savings_pct = (savings $ / ${monthly_forecast:.2f}) × 100
-   - Example: "Current: ${monthly_forecast:.2f}/mo, Alt: $0.50/hr × {estimated_hours:.2f}hrs/mo = $X/mo, Savings: ${monthly_forecast:.2f} - $X = $Y ({savings_pct:.1f}%)"
+   - Example: "Current: ${monthly_forecast:.2f}/mo, Alt: $0.50/hr × {estimated_hours:.2f}hrs/mo = $X/mo, Savings: ${monthly_forecast:.2f} - $X = $Y (Z%)"
 3. CRITICAL: Only recommend if savings $ > 0. If savings $ ≤ 0, DO NOT recommend (costs more or same). Skip that recommendation.
 4. Each recommendation must be DIFFERENT ACTION CATEGORY. Do NOT give same action 3 times (e.g., NOT resize to 3 different instance types). Consider: instance type changes, pricing models (RI/savings/spot), usage schedules, optimization features
 5. Anomalies: metric name, timestamp, value, reason
