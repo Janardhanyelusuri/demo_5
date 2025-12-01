@@ -241,10 +241,11 @@ def get_ebs_volume_pricing(conn, schema_name: str, region: str = "us-east-1") ->
 def format_ec2_pricing_for_llm(current_pricing: Optional[Dict], alternatives: List[Dict]) -> str:
     """
     Format EC2 pricing data for LLM context.
+    Condensed format to reduce token usage.
 
     Args:
         current_pricing: Current instance pricing dict
-        alternatives: List of alternative instance pricing dicts
+        alternatives: List of alternative instance pricing dicts (max 3 will be used)
 
     Returns:
         Formatted string for LLM prompt
@@ -252,31 +253,25 @@ def format_ec2_pricing_for_llm(current_pricing: Optional[Dict], alternatives: Li
     output = []
 
     if current_pricing:
-        output.append("CURRENT EC2 INSTANCE PRICING:")
-        output.append(f"- Instance Type: {current_pricing['instance_type']}")
-        output.append(f"- vCPU: {current_pricing['vcpu']}, Memory: {current_pricing['memory']}")
-        output.append(f"- Hourly Rate: {current_pricing['price_per_hour']:.4f} {current_pricing['currency']}")
-        output.append(f"- Monthly Cost: {current_pricing['monthly_cost']:.2f} {current_pricing['currency']}")
-        output.append(f"- Network: {current_pricing['network_performance']}")
+        output.append(f"CURRENT: {current_pricing['instance_type']} ({current_pricing['vcpu']}vCPU, {current_pricing['memory']}) = {current_pricing['price_per_hour']:.4f}/hr ({current_pricing['monthly_cost']:.2f}/mo {current_pricing['currency']})")
     else:
-        output.append("CURRENT EC2 PRICING: Not available in pricing database")
+        output.append("CURRENT: Not available")
 
     if alternatives:
-        output.append("\nALTERNATIVE EC2 INSTANCES (sorted by price):")
-        curr_currency = current_pricing.get('currency', '') if current_pricing else ''
-        for i, alt in enumerate(alternatives[:5], 1):
-            output.append(f"{i}. {alt['instance_type']} ({alt['vcpu']} vCPU, {alt['memory']}): {alt['price_per_hour']:.4f}/hr ({alt['monthly_cost']:.2f}/month {curr_currency})")
-
+        # Only send top 3 alternatives to reduce token usage
+        curr_currency = current_pricing.get('currency', 'USD') if current_pricing else 'USD'
+        for i, alt in enumerate(alternatives[:3], 1):
+            savings = ""
             if current_pricing and current_pricing['monthly_cost'] > 0:
-                savings = current_pricing['monthly_cost'] - alt['monthly_cost']
-                savings_pct = (savings / current_pricing['monthly_cost']) * 100
-
-                if savings > 0:
-                    output.append(f"   💰 Save {savings:.2f}/month ({savings_pct:.1f}% reduction)")
-                elif savings < 0:
-                    output.append(f"   💸 Cost increase {abs(savings):.2f}/month ({abs(savings_pct):.1f}% more)")
+                savings_amt = current_pricing['monthly_cost'] - alt['monthly_cost']
+                savings_pct = (savings_amt / current_pricing['monthly_cost']) * 100
+                if savings_pct > 0:
+                    savings = f" (Save {savings_pct:.0f}%)"
+                elif savings_pct < 0:
+                    savings = f" (+{abs(savings_pct):.0f}%)"
+            output.append(f"ALT{i}: {alt['instance_type']} ({alt['vcpu']}vCPU, {alt['memory']}) = {alt['price_per_hour']:.4f}/hr ({alt['monthly_cost']:.2f}/mo){savings}")
     else:
-        output.append("\nALTERNATIVE EC2 INSTANCES: Not available in pricing database")
+        output.append("ALTERNATIVES: None available")
 
     return "\n".join(output)
 
@@ -284,6 +279,7 @@ def format_ec2_pricing_for_llm(current_pricing: Optional[Dict], alternatives: Li
 def format_s3_pricing_for_llm(s3_pricing: Dict, current_class: str = "STANDARD") -> str:
     """
     Format S3 storage class pricing data for LLM context.
+    Condensed format to reduce token usage.
 
     Args:
         s3_pricing: S3 pricing dict by storage class
@@ -293,19 +289,21 @@ def format_s3_pricing_for_llm(s3_pricing: Dict, current_class: str = "STANDARD")
         Formatted string for LLM prompt
     """
     if not s3_pricing:
-        return "S3 STORAGE CLASS PRICING: Not available in pricing database"
+        return "S3 STORAGE PRICING: Not available"
 
-    output = ["S3 STORAGE CLASS PRICING:"]
+    output = []
 
     # Show current class first if available
     if current_class in s3_pricing:
         info = s3_pricing[current_class]
-        output.append(f"- CURRENT ({current_class}): {info['price_per_unit']:.6f} per {info['unit']}")
+        output.append(f"CURRENT ({current_class}): {info['price_per_unit']:.5f}/{info['unit']}")
 
-    # Show alternatives
-    for storage_class, info in list(s3_pricing.items())[:7]:
-        if storage_class != current_class:
-            output.append(f"- {storage_class}: {info['price_per_unit']:.6f} per {info['unit']}")
+    # Only send top 3 alternatives to reduce token usage
+    alternatives_count = 0
+    for storage_class, info in s3_pricing.items():
+        if storage_class != current_class and alternatives_count < 3:
+            output.append(f"ALT{alternatives_count + 1} ({storage_class}): {info['price_per_unit']:.5f}/{info['unit']}")
+            alternatives_count += 1
 
     return "\n".join(output)
 

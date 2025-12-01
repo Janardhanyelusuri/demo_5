@@ -213,85 +213,41 @@ def _generate_storage_prompt(resource_data: dict, start_date: str, end_date: str
     else:
         pricing_context = "\n\nPRICING DATA: Not available (schema not provided)\n"
 
-    return f"""Azure Storage FinOps. Analyze metrics, output JSON only.
+    # Extract key metrics for base_of_recommendations
+    metrics_list = []
+    for metric_name, values in formatted_metrics.items():
+        if values.get('Avg') is not None:
+            metrics_list.append(f"{metric_name}: Avg={values['Avg']:.2f}, Max={values.get('Max', 0):.2f}")
 
-CONTEXT: {resource_data.get("resource_id", "N/A")} | {current_sku} {current_tier} | {start_date} to {end_date} ({resource_data.get("duration_days", 30)}d) | Cost: {billed_cost:.2f}
+    return f"""Azure Storage FinOps. Analyze {resource_data.get("resource_id", "N/A")} | {current_sku} {current_tier} | {start_date} to {end_date} ({resource_data.get("duration_days", 30)}d) | Cost: ${billed_cost:.2f}
 
-METRICS:
-{json.dumps(formatted_metrics, indent=2)}
-{pricing_context}
-DECISION PROCESS (STRICT ORDER):
-1. **ANALYZE METRICS FIRST**: Examine capacity (GB), transactions, egress/ingress from METRICS section
-2. **DETERMINE ACTION**: Based ONLY on metrics, decide: Change tier (low access → Cool/Archive), Enable lifecycle (aging data), Configure replication, or No change
-3. **FIND ALTERNATIVES**: If action needed, use PRICING DATA to find exact tier names and per-GB costs
-4. **CALCULATE SAVINGS**: Use actual pricing from PRICING DATA to compute saving_pct
+METRICS: {json.dumps(formatted_metrics, indent=2)}
 
-CRITICAL RULES:
-- ALL metric values MUST come from METRICS section above - NEVER invent values
-- ALL tier names and costs MUST come from PRICING DATA section - NEVER invent pricing
-- BANNED WORDS: "consider", "review", "optimize", "significant", "could", "should", "it is recommended", "may", "might"
-- USE DECISIVE LANGUAGE: "Move to Cool tier", "Enable lifecycle policy", "Change to Archive tier"
-- Express savings as percentages: saving_pct = ((current_cost - new_cost) / current_cost) * 100
-- Include units in ALL values: GB, transactions, %, per GB
-- For contract_deal: Compare current tier pricing vs alternative tier pricing from PRICING DATA
+PRICING: {pricing_context}
 
-JSON OUTPUT (NO placeholders - use actual values from METRICS and PRICING DATA):
+RULES:
+- Use ONLY data from METRICS & PRICING (no invented values)
+- Decisive language only (banned: "consider", "review", "optimize", "could", "should")
+- savings_pct = ((current - new) / current) * 100
+- base_of_recommendations MUST list metrics analyzed (e.g., ["UsedCapacity: 500GB", "Transactions: 100/day"])
+
+JSON OUTPUT:
 {{
   "recommendations": {{
-    "effective_recommendation": {{
-      "text": "Action verb + target tier from PRICING DATA",
-      "explanation": "Cite specific metrics (e.g., UsedCapacity 500GB, Transactions 100/day) and pricing from PRICING DATA",
-      "saving_pct": 0
-    }},
+    "effective_recommendation": {{"text": "Action + tier from PRICING", "explanation": "Cite metrics & pricing", "saving_pct": 0}},
     "additional_recommendation": [
-      {{
-        "text": "Action verb + specific recommendation with pricing",
-        "explanation": "Cite actual metrics and pricing",
-        "saving_pct": 0
-      }},
-      {{
-        "text": "Action verb + specific recommendation with pricing",
-        "explanation": "Cite actual metrics and pricing",
-        "saving_pct": 0
-      }},
-      {{
-        "text": "Action verb + specific recommendation with pricing",
-        "explanation": "Cite actual metrics and pricing",
-        "saving_pct": 0
-      }}
+      {{"text": "Action + recommendation", "explanation": "Cite metrics & pricing", "saving_pct": 0}},
+      {{"text": "Action + recommendation", "explanation": "Cite metrics & pricing", "saving_pct": 0}}
     ],
-    "base_of_recommendations": []
+    "base_of_recommendations": {metrics_list}
   }},
   "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}},
   "anomalies": [
-    {{
-      "metric_name": "Exact name from METRICS",
-      "timestamp": "Exact MaxDate from METRICS",
-      "value": 0,
-      "reason_short": "Explain using metric context"
-    }},
-    {{
-      "metric_name": "Exact name from METRICS",
-      "timestamp": "Exact MaxDate from METRICS",
-      "value": 0,
-      "reason_short": "Explain using metric context"
-    }},
-    {{
-      "metric_name": "Exact name from METRICS",
-      "timestamp": "Exact MaxDate from METRICS",
-      "value": 0,
-      "reason_short": "Explain using metric context"
-    }}
+    {{"metric_name": "From METRICS", "timestamp": "MaxDate from METRICS", "value": 0, "reason_short": "Why anomaly"}},
+    {{"metric_name": "From METRICS", "timestamp": "MaxDate from METRICS", "value": 0, "reason_short": "Why anomaly"}}
   ],
-  "contract_deal": {{
-    "assessment": "good|bad|unknown",
-    "for_sku": "{current_sku} {current_tier}",
-    "reason": "Compare current tier vs alternative tiers using PRICING DATA",
-    "monthly_saving_pct": 0,
-    "annual_saving_pct": 0
-  }}
-}}
-"""
+  "contract_deal": {{"assessment": "good|bad|unknown", "for_sku": "{current_sku} {current_tier}", "reason": "Compare current vs alternatives", "monthly_saving_pct": 0, "annual_saving_pct": 0}}
+}}"""
 
 def _estimate_vm_hourly_cost(sku_name: str) -> float:
     """
@@ -358,8 +314,8 @@ def _generate_compute_prompt(resource_data: dict, start_date: str, end_date: str
             # Get current SKU pricing
             current_pricing = get_vm_current_pricing(schema_name, current_sku, region)
 
-            # Get alternative SKU pricing
-            alternative_pricing = get_vm_alternative_pricing(schema_name, current_sku, region, max_results=10)
+            # Get alternative SKU pricing (reduced from 10 to 5 to avoid rate limits)
+            alternative_pricing = get_vm_alternative_pricing(schema_name, current_sku, region, max_results=5)
 
             # Debug: Print fetched pricing
             print(f"\n{'='*60}")
@@ -422,80 +378,41 @@ def _generate_compute_prompt(resource_data: dict, start_date: str, end_date: str
     else:
         pricing_context = "\n\nPRICING DATA: Not available (schema or SKU not provided)\n"
 
-    return f"""Azure VM FinOps. Analyze metrics, output JSON only.
+    # Extract key metrics for base_of_recommendations
+    metrics_list = []
+    for metric_name, values in formatted_metrics.items():
+        if values.get('Avg') is not None:
+            metrics_list.append(f"{metric_name}: Avg={values['Avg']:.2f}, Max={values.get('Max', 0):.2f}")
 
-CONTEXT: {resource_id} | SKU: {current_sku} | {start_date} to {end_date} ({duration_days}d) | Cost: {billed_cost:.2f}
+    return f"""Azure VM FinOps. Analyze {resource_id} | SKU: {current_sku} | {start_date} to {end_date} ({duration_days}d) | Cost: ${billed_cost:.2f}
 
-METRICS:
-{json.dumps(formatted_metrics, indent=2)}
-{pricing_context}
-DECISION PROCESS (STRICT ORDER):
-1. **ANALYZE METRICS FIRST**: Examine CPU%, Memory, Disk I/O, Network from METRICS section
-2. **DETERMINE ACTION**: Based ONLY on metrics, decide: Downsize (low usage), Upsize (high usage), Reserved Instance (steady usage), or No change
-3. **FIND ALTERNATIVES**: If action needed, use PRICING DATA to find exact SKU names and costs
-4. **CALCULATE SAVINGS**: Use actual pricing numbers from PRICING DATA to compute saving_pct
+METRICS: {json.dumps(formatted_metrics, indent=2)}
 
-CRITICAL RULES:
-- ALL metric values MUST come from METRICS section above - NEVER invent values
-- ALL SKU names and costs MUST come from PRICING DATA section - NEVER invent pricing
-- BANNED WORDS: "consider", "review", "optimize", "significant", "could", "should", "it is recommended", "may", "might"
-- USE DECISIVE LANGUAGE: "Downsize to X", "Purchase RI for Y", "Change to Z"
-- Express savings as percentages: saving_pct = ((current_cost - new_cost) / current_cost) * 100
-- Include units in ALL values: %, GB, vCPU, IOPS, ops/sec
-- For contract_deal: Compare On-Demand pricing vs Reserved Instance pricing from PRICING DATA
+PRICING: {pricing_context}
 
-JSON OUTPUT (NO placeholders - use actual values from METRICS and PRICING DATA):
+RULES:
+- Use ONLY data from METRICS & PRICING sections (no invented values)
+- Decisive language only (banned: "consider", "review", "optimize", "could", "should")
+- savings_pct = ((current - new) / current) * 100
+- base_of_recommendations MUST list metrics analyzed (e.g., ["CPU Avg: 15%", "Memory Avg: 2GB"])
+
+JSON OUTPUT:
 {{
   "recommendations": {{
-    "effective_recommendation": {{
-      "text": "Action verb + target SKU from PRICING DATA",
-      "explanation": "Cite specific metrics from METRICS (e.g., CPU 15% avg) and pricing from PRICING DATA",
-      "saving_pct": 0
-    }},
+    "effective_recommendation": {{"text": "Action + SKU from PRICING", "explanation": "Cite metrics & pricing", "saving_pct": 0}},
     "additional_recommendation": [
-      {{
-        "text": "Action verb + specific recommendation with pricing",
-        "explanation": "Cite actual metrics and pricing",
-        "saving_pct": 0
-      }},
-      {{
-        "text": "Action verb + specific recommendation with pricing",
-        "explanation": "Cite actual metrics and pricing",
-        "saving_pct": 0
-      }}
+      {{"text": "Action + recommendation", "explanation": "Cite metrics & pricing", "saving_pct": 0}},
+      {{"text": "Action + recommendation", "explanation": "Cite metrics & pricing", "saving_pct": 0}}
     ],
-    "base_of_recommendations": []
+    "base_of_recommendations": {metrics_list}
   }},
   "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}},
   "anomalies": [
-    {{
-      "metric_name": "Exact name from METRICS",
-      "timestamp": "Exact MaxDate from METRICS",
-      "value": 0,
-      "reason_short": "Explain using metric context"
-    }},
-    {{
-      "metric_name": "Exact name from METRICS",
-      "timestamp": "Exact MaxDate from METRICS",
-      "value": 0,
-      "reason_short": "Explain using metric context"
-    }},
-    {{
-      "metric_name": "Exact name from METRICS",
-      "timestamp": "Exact MaxDate from METRICS",
-      "value": 0,
-      "reason_short": "Explain using metric context"
-    }}
+    {{"metric_name": "From METRICS", "timestamp": "MaxDate from METRICS", "value": 0, "reason_short": "Why anomaly"}},
+    {{"metric_name": "From METRICS", "timestamp": "MaxDate from METRICS", "value": 0, "reason_short": "Why anomaly"}}
   ],
-  "contract_deal": {{
-    "assessment": "good|bad|unknown",
-    "for_sku": "{current_sku}",
-    "reason": "Compare On-Demand vs RI pricing from PRICING DATA",
-    "monthly_saving_pct": 0,
-    "annual_saving_pct": 0
-  }}
-}}
-"""
+  "contract_deal": {{"assessment": "good|bad|unknown", "for_sku": "{current_sku}", "reason": "Compare On-Demand vs RI", "monthly_saving_pct": 0, "annual_saving_pct": 0}}
+}}"""
 
 # --- EXPORTED LLM CALL FUNCTIONS (with logging) ---
 
@@ -643,77 +560,41 @@ def _generate_public_ip_prompt(resource_data: dict, start_date: str, end_date: s
     else:
         pricing_context = "\n\nPRICING DATA: Not available (schema not provided)\n"
 
-    # Use f-string for better readability and variable injection
-    return f"""Azure Public IP FinOps. Analyze metrics, output JSON only.
+    # Extract key metrics for base_of_recommendations
+    metrics_list = []
+    for metric_name, values in formatted_metrics.items():
+        if values.get('Avg') is not None:
+            metrics_list.append(f"{metric_name}: Avg={values['Avg']:.2f}, Max={values.get('Max', 0):.2f}")
 
-CONTEXT: {resource_data.get("resource_id", "N/A")} | {current_sku} {current_tier} | IP: {ip_address} ({allocation_method}) | {start_date} to {end_date} ({resource_data.get("duration_days", 30)}d) | Cost: {billed_cost:.2f}
+    return f"""Azure Public IP FinOps. Analyze {resource_data.get("resource_id", "N/A")} | {current_sku} {current_tier} | IP: {ip_address} ({allocation_method}) | {start_date} to {end_date} ({resource_data.get("duration_days", 30)}d) | Cost: ${billed_cost:.2f}
 
 METRICS: {json.dumps(formatted_metrics, indent=2)}
-{pricing_context}
-DECISION PROCESS (STRICT ORDER):
-1. **ANALYZE METRICS FIRST**: Examine PacketCount, ByteCount, VipAvailability from METRICS section
-2. **DETERMINE ACTION**: Based ONLY on metrics, decide: Switch to Dynamic (unused), Delete IP (no traffic), Reserve Static (active use), or No change
-3. **FIND ALTERNATIVES**: If action needed, use PRICING DATA to find exact pricing for allocation methods
-4. **CALCULATE SAVINGS**: Use actual pricing from PRICING DATA to compute saving_pct
 
-CRITICAL RULES:
-- ALL metric values MUST come from METRICS section above - NEVER invent values
-- ALL pricing MUST come from PRICING DATA section - NEVER invent pricing
-- BANNED WORDS: "consider", "review", "optimize", "significant", "could", "should", "it is recommended", "may", "might"
-- USE DECISIVE LANGUAGE: "Switch to Dynamic IP", "Delete unused IP", "Reserve Static IP"
-- Express savings as percentages: saving_pct = ((current_cost - new_cost) / current_cost) * 100
-- Include units in ALL values: packets, bytes, %, Mbps
-- For contract_deal: Compare Static vs Dynamic or Reserved pricing from PRICING DATA
+PRICING: {pricing_context}
 
-JSON OUTPUT (NO placeholders - use actual values from METRICS and PRICING DATA):
+RULES:
+- Use ONLY data from METRICS & PRICING (no invented values)
+- Decisive language only (banned: "consider", "review", "optimize", "could", "should")
+- savings_pct = ((current - new) / current) * 100
+- base_of_recommendations MUST list metrics analyzed (e.g., ["PacketCount: 0", "ByteCount: 0GB"])
+
+JSON OUTPUT:
 {{
   "recommendations": {{
-    "effective_recommendation": {{
-      "text": "Action verb + specific recommendation",
-      "explanation": "Cite specific metrics (e.g., PacketCount 0 avg for 30 days) and pricing from PRICING DATA",
-      "saving_pct": 0
-    }},
+    "effective_recommendation": {{"text": "Action + method from PRICING", "explanation": "Cite metrics & pricing", "saving_pct": 0}},
     "additional_recommendation": [
-      {{
-        "text": "Action verb + specific recommendation",
-        "explanation": "Cite actual metrics and pricing",
-        "saving_pct": 0
-      }},
-      {{
-        "text": "Action verb + specific recommendation",
-        "explanation": "Cite actual metrics and pricing",
-        "saving_pct": 0
-      }}
+      {{"text": "Action + recommendation", "explanation": "Cite metrics & pricing", "saving_pct": 0}},
+      {{"text": "Action + recommendation", "explanation": "Cite metrics & pricing", "saving_pct": 0}}
     ],
-    "base_of_recommendations": []
+    "base_of_recommendations": {metrics_list}
   }},
-  "cost_forecasting": {{
-    "monthly": {monthly_forecast},
-    "annually": {annual_forecast}
-  }},
+  "cost_forecasting": {{"monthly": {monthly_forecast}, "annually": {annual_forecast}}},
   "anomalies": [
-    {{
-      "metric_name": "Exact name from METRICS",
-      "timestamp": "Exact MaxDate from METRICS",
-      "value": 0,
-      "reason_short": "Explain using metric context"
-    }},
-    {{
-      "metric_name": "Exact name from METRICS",
-      "timestamp": "Exact MaxDate from METRICS",
-      "value": 0,
-      "reason_short": "Explain using metric context"
-    }}
+    {{"metric_name": "From METRICS", "timestamp": "MaxDate from METRICS", "value": 0, "reason_short": "Why anomaly"}},
+    {{"metric_name": "From METRICS", "timestamp": "MaxDate from METRICS", "value": 0, "reason_short": "Why anomaly"}}
   ],
-  "contract_deal": {{
-    "assessment": "good|bad|unknown",
-    "for_sku": "{current_sku}",
-    "reason": "Compare Static vs Dynamic/Reserved pricing from PRICING DATA",
-    "monthly_saving_pct": 0,
-    "annual_saving_pct": 0
-  }}
-}}
-"""
+  "contract_deal": {{"assessment": "good|bad|unknown", "for_sku": "{current_sku}", "reason": "Compare Static vs Dynamic", "monthly_saving_pct": 0, "annual_saving_pct": 0}}
+}}"""
 
 
 def get_public_ip_recommendation_single(resource_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:

@@ -278,8 +278,8 @@ def generate_ec2_prompt(instance_data: Dict[str, Any]) -> str:
             # Get current instance type pricing
             current_pricing = get_ec2_current_pricing(schema_name, instance_type, region)
 
-            # Get alternative instance type pricing
-            alternative_pricing = get_ec2_alternative_pricing(schema_name, instance_type, region, max_results=10)
+            # Get alternative instance type pricing (reduced from 10 to 5 to avoid rate limits)
+            alternative_pricing = get_ec2_alternative_pricing(schema_name, instance_type, region, max_results=5)
 
             # Debug: Print fetched pricing
             print(f"\n{'='*60}")
@@ -342,87 +342,49 @@ def generate_ec2_prompt(instance_data: Dict[str, Any]) -> str:
     else:
         pricing_context = "\n\nPRICING DATA: Not available (schema or instance type not provided)\n"
 
-    prompt = f"""
-AWS EC2 FinOps. Analyze metrics, output JSON only.
+    # Build metrics list for base_of_recommendations
+    metrics_list = [
+        f"CPU Avg: {cpu_avg:.1f}%, Max: {cpu_max:.1f}%",
+        f"Network In Avg: {network_in_avg:.1f}GB, Max: {network_in_max:.1f}GB",
+        f"Network Out Avg: {network_out_avg:.1f}GB, Max: {network_out_max:.1f}GB",
+        f"Disk Read Ops Avg: {disk_read_avg:.1f} ops/sec",
+        f"Disk Write Ops Avg: {disk_write_avg:.1f} ops/sec"
+    ]
 
-**CONTEXT:**
-- Instance ID: {instance_id}
-- Instance Type: {instance_type}
-- Region: {region}
-- Analysis Period: {start_date} to {end_date} ({duration_days} days)
-- Total Billed Cost: {billed_cost:.2f}
+    prompt = f"""AWS EC2 FinOps. Analyze {instance_id} | Type: {instance_type} | Region: {region} | {start_date} to {end_date} ({duration_days}d) | Cost: ${billed_cost:.2f}
 
-**METRICS:**
-- CPU Utilization: Avg {cpu_avg:.2f}%, Max {cpu_max:.2f}% (on {cpu_max_date})
-- Network In: Avg {network_in_avg:.2f} GB, Max {network_in_max:.2f} GB
-- Network Out: Avg {network_out_avg:.2f} GB, Max {network_out_max:.2f} GB
-- Disk Read Ops: Avg {disk_read_avg:.2f} ops/sec
-- Disk Write Ops: Avg {disk_write_avg:.2f} ops/sec
-{pricing_context}
-**DECISION PROCESS (STRICT ORDER):**
-1. **ANALYZE METRICS FIRST**: Examine CPU%, Network I/O, Disk ops from METRICS section above
-2. **DETERMINE ACTION**: Based ONLY on metrics, decide: Downsize (low CPU/network), Upsize (high CPU), Reserved Instance (steady usage), or No change
-3. **FIND ALTERNATIVES**: If action needed, use PRICING DATA to find exact instance types and costs
-4. **CALCULATE SAVINGS**: Use actual pricing numbers from PRICING DATA to compute saving_pct
+METRICS:
+CPU: Avg {cpu_avg:.2f}%, Max {cpu_max:.2f}% (on {cpu_max_date})
+Network In: Avg {network_in_avg:.2f}GB, Max {network_in_max:.2f}GB
+Network Out: Avg {network_out_avg:.2f}GB, Max {network_out_max:.2f}GB
+Disk Read: Avg {disk_read_avg:.2f} ops/sec
+Disk Write: Avg {disk_write_avg:.2f} ops/sec
 
-**CRITICAL RULES:**
-- ALL metric values MUST come from METRICS section above - NEVER invent values
-- ALL instance types and costs MUST come from PRICING DATA section - NEVER invent pricing
-- BANNED WORDS: "consider", "review", "optimize", "significant", "could", "should", "it is recommended", "may", "might"
-- USE DECISIVE LANGUAGE: "Downsize to t3.medium", "Purchase RI for current instance", "Switch to c5.large"
-- Express savings as percentages: saving_pct = ((current_cost - new_cost) / current_cost) * 100
-- Include units in ALL values: %, GB, ops/sec, vCPU
-- For contract_deal: Compare On-Demand vs Reserved Instance pricing from PRICING DATA
+PRICING: {pricing_context}
 
-**JSON OUTPUT (NO placeholders - use actual values from METRICS and PRICING DATA):**
+RULES:
+- Use ONLY data from METRICS & PRICING (no invented values)
+- Decisive language only (banned: "consider", "review", "optimize", "could", "should")
+- savings_pct = ((current - new) / current) * 100
+- base_of_recommendations MUST list metrics analyzed
+
+JSON OUTPUT:
 {{
   "recommendations": {{
-    "effective_recommendation": {{
-      "text": "Action verb + target instance type from PRICING DATA with specs",
-      "explanation": "Cite specific metrics (e.g., CPU 15% avg) and pricing from PRICING DATA",
-      "saving_pct": 0
-    }},
+    "effective_recommendation": {{"text": "Action + instance type from PRICING", "explanation": "Cite metrics & pricing", "saving_pct": 0}},
     "additional_recommendation": [
-      {{
-        "text": "Action verb + specific recommendation with pricing",
-        "explanation": "Cite actual metrics and pricing",
-        "saving_pct": 0
-      }},
-      {{
-        "text": "Action verb + specific recommendation with pricing",
-        "explanation": "Cite actual metrics and pricing",
-        "saving_pct": 0
-      }}
+      {{"text": "Action + recommendation", "explanation": "Cite metrics & pricing", "saving_pct": 0}},
+      {{"text": "Action + recommendation", "explanation": "Cite metrics & pricing", "saving_pct": 0}}
     ],
-    "base_of_recommendations": []
+    "base_of_recommendations": {metrics_list}
   }},
-  "cost_forecasting": {{
-    "monthly": 0,
-    "annually": 0
-  }},
+  "cost_forecasting": {{"monthly": 0, "annually": 0}},
   "anomalies": [
-    {{
-      "metric_name": "Exact name from METRICS",
-      "timestamp": "Exact timestamp from METRICS",
-      "value": 0,
-      "reason_short": "Explain using metric context"
-    }},
-    {{
-      "metric_name": "Exact name from METRICS",
-      "timestamp": "Exact timestamp from METRICS",
-      "value": 0,
-      "reason_short": "Explain using metric context"
-    }}
+    {{"metric_name": "From METRICS", "timestamp": "From METRICS", "value": 0, "reason_short": "Why anomaly"}},
+    {{"metric_name": "From METRICS", "timestamp": "From METRICS", "value": 0, "reason_short": "Why anomaly"}}
   ],
-  "contract_deal": {{
-    "assessment": "good|bad|unknown",
-    "for_sku": "{instance_type}",
-    "reason": "Compare On-Demand vs RI pricing from PRICING DATA",
-    "monthly_saving_pct": 0,
-    "annual_saving_pct": 0
-  }}
-}}
-"""
+  "contract_deal": {{"assessment": "good|bad|unknown", "for_sku": "{instance_type}", "reason": "Compare On-Demand vs RI", "monthly_saving_pct": 0, "annual_saving_pct": 0}}
+}}"""
 
     return prompt
 
