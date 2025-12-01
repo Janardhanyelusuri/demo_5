@@ -353,37 +353,40 @@ def generate_ec2_prompt(instance_data: Dict[str, Any]) -> str:
 
     prompt = f"""AWS EC2 FinOps. Analyze {instance_id} | Type: {instance_type} | Region: {region} | {start_date} to {end_date} ({duration_days}d) | Cost: ${billed_cost:.2f}
 
-METRICS:
-CPU: Avg {cpu_avg:.2f}%, Max {cpu_max:.2f}% (on {cpu_max_date})
-Network In: Avg {network_in_avg:.2f}GB, Max {network_in_max:.2f}GB
-Network Out: Avg {network_out_avg:.2f}GB, Max {network_out_max:.2f}GB
-Disk Read: Avg {disk_read_avg:.2f} ops/sec
-Disk Write: Avg {disk_write_avg:.2f} ops/sec
+AVAILABLE METRICS (MUST USE THESE):
+- CPU: Avg {cpu_avg:.2f}%, Max {cpu_max:.2f}% (on {cpu_max_date})
+- Network In: Avg {network_in_avg:.2f}GB, Max {network_in_max:.2f}GB
+- Network Out: Avg {network_out_avg:.2f}GB, Max {network_out_max:.2f}GB
+- Disk Read: Avg {disk_read_avg:.2f} ops/sec
+- Disk Write: Avg {disk_write_avg:.2f} ops/sec
 
-PRICING: {pricing_context}
+PRICING OPTIONS:
+{pricing_context}
 
-RULES:
-- Use ONLY data from METRICS & PRICING (no invented values)
-- Decisive language only (banned: "consider", "review", "optimize", "could", "should")
-- savings_pct = ((current - new) / current) * 100
-- base_of_recommendations MUST list metrics analyzed
+CRITICAL RULES:
+1. MUST use actual metric values from AVAILABLE METRICS
+2. NEVER say "no metrics" - USE THE METRICS SHOWN
+3. Cite specific numbers: "CPU Avg 45.2%"
+4. Pick SPECIFIC instance type from PRICING OPTIONS
+5. Calculate savings: ((current_monthly - new_monthly) / current_monthly) * 100
+6. base_of_recommendations = {metrics_list}
 
-JSON OUTPUT:
+OUTPUT (JSON only):
 {{
   "recommendations": {{
-    "effective_recommendation": {{"text": "Action + instance type from PRICING", "explanation": "Cite metrics & pricing", "saving_pct": 0}},
+    "effective_recommendation": {{"text": "Specific action with instance type", "explanation": "Based on [cite metrics + pricing]", "saving_pct": <number>}},
     "additional_recommendation": [
-      {{"text": "Action + recommendation", "explanation": "Cite metrics & pricing", "saving_pct": 0}},
-      {{"text": "Action + recommendation", "explanation": "Cite metrics & pricing", "saving_pct": 0}}
+      {{"text": "Specific action", "explanation": "Cite metrics + pricing", "saving_pct": <number>}},
+      {{"text": "Specific action", "explanation": "Cite metrics + pricing", "saving_pct": <number>}}
     ],
     "base_of_recommendations": {metrics_list}
   }},
   "cost_forecasting": {{"monthly": 0, "annually": 0}},
   "anomalies": [
-    {{"metric_name": "From METRICS", "timestamp": "From METRICS", "value": 0, "reason_short": "Why anomaly"}},
-    {{"metric_name": "From METRICS", "timestamp": "From METRICS", "value": 0, "reason_short": "Why anomaly"}}
+    {{"metric_name": "From AVAILABLE METRICS", "timestamp": "{cpu_max_date}", "value": <number>, "reason_short": "Why"}},
+    {{"metric_name": "From AVAILABLE METRICS", "timestamp": "Date", "value": <number>, "reason_short": "Why"}}
   ],
-  "contract_deal": {{"assessment": "good|bad|unknown", "for_sku": "{instance_type}", "reason": "Compare On-Demand vs RI", "monthly_saving_pct": 0, "annual_saving_pct": 0}}
+  "contract_deal": {{"assessment": "good|bad|unknown", "for_sku": "{instance_type}", "reason": "Compare using PRICING", "monthly_saving_pct": <number>, "annual_saving_pct": <number>}}
 }}"""
 
     return prompt
