@@ -174,6 +174,7 @@ def get_storage_pricing_context(conn, schema_name: str, region: str = "eastus", 
         List of diverse storage option pricing dicts
     """
     # Get diverse storage options across tiers and redundancy
+    # Focus on actual data storage tiers, not provisioned capacity
     query = f"""
         SELECT DISTINCT
             sku_name,
@@ -183,11 +184,12 @@ def get_storage_pricing_context(conn, schema_name: str, region: str = "eastus", 
             unit_of_measure
         FROM {schema_name}.azure_pricing_storage
         WHERE LOWER(arm_region_name) = LOWER(%s)
-          AND (
-              meter_name LIKE '%%Data Stored%%'
-              OR meter_name LIKE '%%Capacity%%'
-          )
+          AND meter_name LIKE '%%Data Stored%%'
+          AND meter_name NOT LIKE '%%Provisioned%%'
+          AND meter_name NOT LIKE '%%Confidential%%'
+          AND meter_name NOT LIKE '%%Metadata%%'
           AND retail_price > 0
+          AND unit_of_measure LIKE '%%GB%%'
         ORDER BY retail_price ASC
         LIMIT %s
     """
