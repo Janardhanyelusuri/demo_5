@@ -204,7 +204,7 @@ async def llm_aws(
         start_date=payload.start_date,
         end_date=payload.end_date,
         resource_id=payload.resource_id,
-        recommendations=json.dumps(result_list) if result_list else None,
+        recommendations=json.dumps(result_list) if result_list is not None else "[]",
         details=None,
         timestamp=datetime.utcnow(),
         task_id=task_id
@@ -313,7 +313,7 @@ async def llm_azure(
         start_date=payload.start_date,
         end_date=payload.end_date,
         resource_id=payload.resource_id,
-        recommendations=json.dumps(result_list) if result_list else None,
+        recommendations=json.dumps(result_list) if result_list is not None else "[]",
         details=None,
         timestamp=datetime.utcnow(),
         task_id=task_id
