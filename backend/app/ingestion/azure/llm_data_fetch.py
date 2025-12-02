@@ -1184,6 +1184,8 @@ def run_llm_analysis(resource_type, schema_name, start_date=None, end_date=None,
         else:
             # Fetch all distinct VMs and process each
             final_response = run_llm_vm_all_resources(schema_name, start_date=start_date, end_date=end_date, task_id=task_id)
+            if final_response is None:
+                final_response = []
             print(f'Final response (all VMs): {len(final_response)} resources processed')
             return final_response
 
@@ -1196,6 +1198,8 @@ def run_llm_analysis(resource_type, schema_name, start_date=None, end_date=None,
         else:
             # Fetch all distinct storage accounts and process each
             final_response = run_llm_storage_all_resources(schema_name, start_date=start_date, end_date=end_date, task_id=task_id)
+            if final_response is None:
+                final_response = []
             print(f'Final response (all Storage): {len(final_response)} resources processed')
             return final_response
 
@@ -1208,6 +1212,8 @@ def run_llm_analysis(resource_type, schema_name, start_date=None, end_date=None,
         else:
             # Fetch all distinct Public IPs and process each
             final_response = run_llm_public_ip_all_resources(schema_name, start_date=start_date, end_date=end_date, task_id=task_id)
+            if final_response is None:
+                final_response = []
             print(f'Final response (all Public IPs): {len(final_response)} resources processed')
             return final_response
 
