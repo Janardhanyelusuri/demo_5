@@ -110,15 +110,29 @@ export const fetchRecommendationsWithFilters = async (
         // 3. Parse the JSON string from the 'recommendations' field
         const rawJsonString = response.data.recommendations;
 
+        // DEBUG: Log what we received
+        console.log('📦 Backend Response Debug:');
+        console.log('  - Status:', response.data.status);
+        console.log('  - Recommendations type:', typeof rawJsonString);
+        console.log('  - Recommendations value:', rawJsonString ? rawJsonString.substring(0, 200) + '...' : rawJsonString);
+
         if (rawJsonString) {
-             const rawData = JSON.parse(rawJsonString) as RawRecommendation[];
-             // 4. Normalize and return with task_id
-             return {
-                 recommendations: normalizeRecommendations(rawData),
-                 taskId: taskId
-             };
+            try {
+                const rawData = JSON.parse(rawJsonString) as RawRecommendation[];
+                console.log('✅ JSON parsed successfully, found', rawData.length, 'recommendations');
+                // 4. Normalize and return with task_id
+                return {
+                    recommendations: normalizeRecommendations(rawData),
+                    taskId: taskId
+                };
+            } catch (parseError) {
+                console.error('❌ JSON Parse Error:', parseError);
+                console.error('❌ Raw string that failed to parse:', rawJsonString);
+                throw new Error(`Failed to parse recommendations JSON: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`);
+            }
         }
 
+        console.log('⚠️  No recommendations in response, returning empty array');
         return {
             recommendations: [],
             taskId: taskId

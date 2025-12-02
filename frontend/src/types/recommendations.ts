@@ -31,7 +31,7 @@ interface Anomaly {
 // Define the contract deal block
 interface ContractDeal {
   assessment: "good" | "bad" | "unknown";
-  'for sku': string;
+  for_sku: string;  // Fixed: backend sends 'for_sku' not 'for sku'
   reason: string;
   monthly_saving_pct: number;
   annual_saving_pct: number;
