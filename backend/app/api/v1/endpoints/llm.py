@@ -403,21 +403,26 @@ async def get_resource_ids(
                     LIMIT 100;
                 """
             elif res_type in ["storage", "storageaccount", "storage_account"]:
-                # Fetch Storage Account resource IDs from Azure (excluding Databricks)
+                # Fetch Storage Account resource IDs from Azure (excluding Databricks and subservices)
                 query = f"""
                     SELECT DISTINCT LOWER(resource_id) as resource_id, storage_account_name as resource_name
                     FROM {schema_name}.dim_storage_account
                     WHERE resource_id IS NOT NULL
                       AND LOWER(resource_id) NOT LIKE '%databricks%'
+                      AND LOWER(resource_id) NOT LIKE '%/blobservices/%'
+                      AND LOWER(resource_id) NOT LIKE '%/fileservices/%'
+                      AND LOWER(resource_id) NOT LIKE '%/queueservices/%'
+                      AND LOWER(resource_id) NOT LIKE '%/tableservices/%'
                     ORDER BY storage_account_name
                     LIMIT 100;
                 """
             elif res_type in ["publicip", "public_ip", "pip"]:
-                # Fetch Public IP resource IDs from Azure
+                # Fetch Public IP resource IDs from Azure (excluding Databricks)
                 query = f"""
                     SELECT DISTINCT LOWER(resource_id) as resource_id, public_ip_name as resource_name
                     FROM {schema_name}.dim_public_ip
                     WHERE resource_id IS NOT NULL
+                      AND LOWER(resource_id) NOT LIKE '%databricks%'
                     ORDER BY public_ip_name
                     LIMIT 100;
                 """

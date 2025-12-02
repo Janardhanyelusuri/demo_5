@@ -368,7 +368,7 @@ INSTRUCTIONS:
 4. Use actual bucket and storage class names (e.g., "{bucket_name} (Standard)", not "current")
 5. Only recommend if it saves money (positive savings)
 6. Each recommendation must be a DIFFERENT type of action (storage class change, lifecycle policy, versioning cleanup, replication optimization, Intelligent-Tiering - NOT multiple storage class changes)
-7. For base_of_recommendations: select the metrics YOU used to make your decision
+7. For base_of_recommendations: select the metrics YOU used to make your decision - MUST include metric name AND value (e.g., "Size: 150GB", "NumberOfObjects: 5000")
 8. For contract_deal: analyze if reserved capacity makes sense for THIS usage pattern (stable/growing data with frequent access = good, volatile or infrequent access = bad)
 
 OUTPUT (JSON):
@@ -379,7 +379,7 @@ OUTPUT (JSON):
       {{"text": "Different action type", "explanation": "WHY + MATH", "saving_pct": <num>}},
       {{"text": "Another different action type", "explanation": "WHY + MATH", "saving_pct": <num>}}
     ],
-    "base_of_recommendations": ["metric1", "metric2"]
+    "base_of_recommendations": ["metric_name: value with unit", "metric_name: value with unit"]
   }},
   "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}},
   "anomalies": [{{"metric_name": "Name", "timestamp": "MaxDate", "value": <num>, "reason_short": "Why unusual"}}],

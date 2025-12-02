@@ -175,8 +175,26 @@ def get_storage_pricing_context(conn, schema_name: str, region: str = "eastus", 
     """
     # Get diverse storage options across tiers and redundancy
     # Focus on actual data storage tiers, not provisioned capacity
+    # Use DISTINCT ON to ensure we get one option per tier type
     query = f"""
-        SELECT DISTINCT
+        WITH diverse_tiers AS (
+            SELECT DISTINCT ON (
+                CASE
+                    WHEN meter_name LIKE '%%Archive%%' THEN 'Archive'
+                    WHEN meter_name LIKE '%%Cool%%' THEN 'Cool'
+                    WHEN meter_name LIKE '%%Hot%%' THEN 'Hot'
+                    WHEN meter_name LIKE '%%Premium%%' THEN 'Premium'
+                    ELSE 'Other'
+                END,
+                CASE
+                    WHEN meter_name LIKE '%%LRS%%' THEN 'LRS'
+                    WHEN meter_name LIKE '%%GRS%%' THEN 'GRS'
+                    WHEN meter_name LIKE '%%ZRS%%' THEN 'ZRS'
+                    WHEN meter_name LIKE '%%RAGRS%%' THEN 'RAGRS'
+                    WHEN meter_name LIKE '%%GZRS%%' THEN 'GZRS'
+                    ELSE 'Other'
+                END
+            )
             sku_name,
             product_name,
             meter_name,
@@ -190,6 +208,25 @@ def get_storage_pricing_context(conn, schema_name: str, region: str = "eastus", 
           AND meter_name NOT LIKE '%%Metadata%%'
           AND retail_price > 0
           AND unit_of_measure LIKE '%%GB%%'
+        ORDER BY
+            CASE
+                WHEN meter_name LIKE '%%Archive%%' THEN 'Archive'
+                WHEN meter_name LIKE '%%Cool%%' THEN 'Cool'
+                WHEN meter_name LIKE '%%Hot%%' THEN 'Hot'
+                WHEN meter_name LIKE '%%Premium%%' THEN 'Premium'
+                ELSE 'Other'
+            END,
+            CASE
+                WHEN meter_name LIKE '%%LRS%%' THEN 'LRS'
+                WHEN meter_name LIKE '%%GRS%%' THEN 'GRS'
+                WHEN meter_name LIKE '%%ZRS%%' THEN 'ZRS'
+                WHEN meter_name LIKE '%%RAGRS%%' THEN 'RAGRS'
+                WHEN meter_name LIKE '%%GZRS%%' THEN 'GZRS'
+                ELSE 'Other'
+            END,
+            retail_price ASC
+        )
+        SELECT * FROM diverse_tiers
         ORDER BY retail_price ASC
         LIMIT %s
     """
