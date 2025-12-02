@@ -378,131 +378,75 @@ def _generate_compute_prompt(resource_data: dict, start_date: str, end_date: str
     pricing_context = ""
     estimated_hours = 0  # Initialize
     current_hourly_rate = 0  # Initialize
-    current_pricing = None  # Initialize
     alternative_pricing = None  # Initialize
+
+    # Calculate implied hourly rate to estimate usage hours
+    # Use fallback estimation to get a baseline hourly rate for this SKU type
+    # Then calculate how many hours the resource must have run to generate the billed cost
+    if billed_cost > 0 and duration_days > 0 and current_sku and current_sku != "N/A":
+        # Estimate what this SKU typically costs per hour
+        estimated_market_rate = _estimate_vm_hourly_cost(current_sku)
+
+        # Calculate implied usage hours from actual billed cost
+        if estimated_market_rate > 0:
+            estimated_hours_total = billed_cost / estimated_market_rate
+            hours_per_day = estimated_hours_total / duration_days
+            estimated_hours = hours_per_day * 30.4375  # Monthly hours
+            current_hourly_rate = estimated_market_rate  # Use estimated rate for calculations
+
+            print(f"\n{'='*60}")
+            print(f"USAGE CALCULATION - Azure VM: {current_sku} in {region}")
+            print(f"{'='*60}")
+            print(f"Billed cost: {billed_cost:.4f} over {duration_days} days")
+            print(f"Estimated market rate: {estimated_market_rate:.4f}/hr")
+            print(f"Implied usage: {estimated_hours_total:.2f} hours total = {hours_per_day:.2f} hrs/day")
+            print(f"Monthly usage estimate: {estimated_hours:.2f} hrs/month")
+            print(f"{'='*60}\n")
 
     if schema_name and current_sku and current_sku != "N/A":
         try:
-            # Get current SKU pricing
-            current_pricing = get_vm_current_pricing(schema_name, current_sku, region)
+            # Only fetch ALTERNATIVE SKUs (4 total: 2 smaller, 2 larger)
+            # We don't need current SKU pricing - we calculate it from usage
+            alternative_pricing = get_vm_alternative_pricing(schema_name, current_sku, region, max_results=4)
 
-            # Get alternative SKU pricing (reduced from 10 to 5 to avoid rate limits)
-            alternative_pricing = get_vm_alternative_pricing(schema_name, current_sku, region, max_results=5)
-
-            # Debug: Print fetched pricing
-            print(f"\n{'='*60}")
-            print(f"PRICING DEBUG - Azure VM: {current_sku} in {region}")
-            print(f"{'='*60}")
-
-            if current_pricing:
-                print(f"CURRENT SKU PRICING:")
-                print(f"  SKU: {current_pricing.get('sku_name')}")
-                print(f"  Hourly: {current_pricing.get('retail_price')}")
-                print(f"  Monthly: {current_pricing.get('monthly_cost')}")
-                print(f"  Currency: {current_pricing.get('currency_code', 'N/A')}")
-
-                if alternative_pricing:
-                    print(f"\nALTERNATIVE SKUs (Top 5):")
-                    for idx, alt in enumerate(alternative_pricing[:5], 1):
-                        savings = current_pricing['monthly_cost'] - alt['monthly_cost']
-                        savings_pct = (savings / current_pricing['monthly_cost']) * 100 if current_pricing['monthly_cost'] > 0 else 0
-                        print(f"  {idx}. {alt['sku_name']}: {alt['price_per_hour']}/hr ({alt['monthly_cost']}/mo) - Save {savings_pct:.1f}%")
-                else:
-                    print(f"\nALTERNATIVE SKUs: Not found in database")
+            if alternative_pricing and len(alternative_pricing) > 0:
+                print(f"ALTERNATIVE SKUs (4 options - 2 smaller, 2 larger):")
+                for idx, alt in enumerate(alternative_pricing[:4], 1):
+                    print(f"  {idx}. {alt['sku_name']}: {alt.get('retail_price', alt.get('price_per_hour', 0)):.4f}/hr")
             else:
-                print(f"CURRENT SKU PRICING: Not found in database")
-                print(f"Using fallback pricing estimates")
-
-                # Fallback pricing when database pricing not available
-                # Estimate based on typical Azure VM pricing patterns
-                estimated_hourly = _estimate_vm_hourly_cost(current_sku)
-                current_pricing = {
-                    'sku_name': current_sku,
-                    'retail_price': estimated_hourly,
-                    'monthly_cost': estimated_hourly * 730,
-                    'currency_code': 'USD',
-                    'unit_of_measure': '1 Hour'
-                }
-
-                # Estimate alternatives (smaller SKUs typically 50% and 75% of current)
-                # IMPORTANT: Use 'retail_price' for Azure (not 'price_per_hour')
+                print(f"ALTERNATIVE SKUs: Not found in database, will use fallback estimates")
+                # Fallback: Create 4 alternatives based on typical sizing
+                estimated_base = current_hourly_rate if current_hourly_rate > 0 else _estimate_vm_hourly_cost(current_sku)
                 alternative_pricing = [
-                    {'sku_name': f'{current_sku.split("_")[0]}_Smaller1', 'retail_price': estimated_hourly * 0.5, 'monthly_cost': estimated_hourly * 0.5 * 730},
-                    {'sku_name': f'{current_sku.split("_")[0]}_Smaller2', 'retail_price': estimated_hourly * 0.75, 'monthly_cost': estimated_hourly * 0.75 * 730},
-                    {'sku_name': f'{current_sku.split("_")[0]}_Larger1', 'retail_price': estimated_hourly * 1.5, 'monthly_cost': estimated_hourly * 1.5 * 730}
+                    {'sku_name': f'{current_sku.split("_")[0]}_Smaller1', 'retail_price': estimated_base * 0.5},
+                    {'sku_name': f'{current_sku.split("_")[0]}_Smaller2', 'retail_price': estimated_base * 0.75},
+                    {'sku_name': f'{current_sku.split("_")[0]}_Larger1', 'retail_price': estimated_base * 1.25},
+                    {'sku_name': f'{current_sku.split("_")[0]}_Larger2', 'retail_price': estimated_base * 1.5},
                 ]
 
-                print(f"  Estimated hourly: {estimated_hourly:.4f} USD")
-                print(f"  Estimated monthly: {current_pricing['monthly_cost']:.2f} USD")
-                print(f"  (Fallback estimates - actual pricing unavailable)")
-
-            print(f"{'='*60}\n")
-
-            # Calculate estimated usage hours for clearer alternative cost calculations
-            if current_pricing and current_pricing.get('retail_price', 0) > 0:
-                current_hourly_rate = current_pricing['retail_price']
-                estimated_hours_total = billed_cost / current_hourly_rate
-                # Convert to MONTHLY hours (not total period hours)
-                estimated_hours = (estimated_hours_total / duration_days) * 30.4375
-                print(f"Estimated usage hours: {estimated_hours_total:.2f} hours total over {duration_days} days")
-                print(f"  = {estimated_hours_total / duration_days:.2f} hours/day")
-                print(f"  = {estimated_hours:.2f} hours/month (for cost calculations)")
-                print(f"Calculated from: ${billed_cost:.4f} / ${current_hourly_rate:.4f}/hr")
-            else:
-                estimated_hours = 0
-                current_hourly_rate = 0
-
-            # Format pricing for LLM
-            pricing_context = "\n\n" + format_vm_pricing_for_llm(current_pricing, alternative_pricing) + "\n"
+            # Format pricing for LLM (alternatives only)
+            pricing_context = "\n\nALTERNATIVE SKUs:\n"
+            for alt in alternative_pricing[:4]:
+                price = alt.get('retail_price', alt.get('price_per_hour', 0))
+                pricing_context += f"- {alt['sku_name']}: {price:.4f}/hr\n"
         except Exception as e:
-            print(f"⚠️ Error fetching VM pricing data: {e}")
+            print(f"⚠️ Error fetching alternative SKU pricing: {e}")
             import traceback
             traceback.print_exc()
 
-            # Fallback pricing on error - create both current and alternatives
-            estimated_hourly = _estimate_vm_hourly_cost(current_sku)
-            current_hourly_rate = estimated_hourly
-            current_pricing = {
-                'sku_name': current_sku,
-                'retail_price': estimated_hourly,
-                'monthly_cost': estimated_hourly * 730,
-                'currency_code': 'USD',
-                'unit_of_measure': '1 Hour'
-            }
-            alternative_pricing = [
-                {'sku_name': f'{current_sku.split("_")[0]}_Smaller1', 'retail_price': estimated_hourly * 0.5, 'monthly_cost': estimated_hourly * 0.5 * 730},
-                {'sku_name': f'{current_sku.split("_")[0]}_Smaller2', 'retail_price': estimated_hourly * 0.75, 'monthly_cost': estimated_hourly * 0.75 * 730},
-            ]
-            # Calculate estimated hours from fallback pricing
+            # Fallback: Create estimated alternatives
             if current_hourly_rate > 0:
-                estimated_hours_total = billed_cost / current_hourly_rate
-                # Convert to MONTHLY hours (not total period hours)
-                estimated_hours = (estimated_hours_total / duration_days) * 30.4375
-            pricing_context = "\n\n" + format_vm_pricing_for_llm(current_pricing, alternative_pricing) + "\n(ESTIMATED - Database unavailable)\n"
+                alternative_pricing = [
+                    {'sku_name': f'{current_sku.split("_")[0]}_Smaller1', 'retail_price': current_hourly_rate * 0.5},
+                    {'sku_name': f'{current_sku.split("_")[0]}_Smaller2', 'retail_price': current_hourly_rate * 0.75},
+                    {'sku_name': f'{current_sku.split("_")[0]}_Larger1', 'retail_price': current_hourly_rate * 1.25},
+                    {'sku_name': f'{current_sku.split("_")[0]}_Larger2', 'retail_price': current_hourly_rate * 1.5},
+                ]
+                pricing_context = "\n\nALTERNATIVE SKUs (ESTIMATED):\n"
+                for alt in alternative_pricing:
+                    pricing_context += f"- {alt['sku_name']}: {alt['retail_price']:.4f}/hr\n"
     else:
-        pricing_context = "\n\nPRICING DATA: Not available (schema or SKU not provided)\n"
-
-    # Extract key metrics for base_of_recommendations (with units)
-    metrics_list = []
-    for metric_name, values in formatted_metrics.items():
-        if values.get('Avg') is not None:
-            # Extract unit from metric name if it has one
-            if '(GB)' in metric_name or 'Capacity' in metric_name:
-                unit = 'GB'
-            elif 'CPU' in metric_name or 'Percentage' in metric_name:
-                unit = '%'
-            elif 'Operations' in metric_name:
-                unit = 'ops/sec'
-            else:
-                unit = ''
-
-            if unit:
-                metrics_list.append(f'"{metric_name}: Avg={values["Avg"]:.2f}{unit}, Max={values.get("Max", 0):.2f}{unit}"')
-            else:
-                metrics_list.append(f'"{metric_name}: Avg={values["Avg"]:.2f}, Max={values.get("Max", 0):.2f}"')
-
-    # Format as JSON array string for LLM
-    metrics_list_str = '[' + ', '.join(metrics_list) + ']' if metrics_list else '[]'
+        pricing_context = "\n\nNo alternative SKU pricing available (schema or SKU not provided)\n"
 
     # Build explicit metric summary for the prompt (with units)
     metrics_summary = []
@@ -524,60 +468,61 @@ def _generate_compute_prompt(resource_data: dict, start_date: str, end_date: str
     metrics_text = "\n".join(metrics_summary) if metrics_summary else "No metrics available - Cannot provide recommendations"
 
     # Determine if we can make recommendations
-    has_pricing = (current_pricing is not None and alternative_pricing)
+    has_pricing = bool(alternative_pricing)
     has_metrics = bool(metrics_summary)
 
-    if not has_pricing or not has_metrics or current_sku == "N/A" or current_sku == "None":
-        return f"""Azure VM {resource_id} | {current_sku} | {duration_days}d | ${billed_cost:.2f}
-ISSUE: {'No pricing' if not has_pricing else 'No metrics' if not has_metrics else 'Unknown SKU'}
-OUTPUT: {{"recommendations": {{"effective_recommendation": {{"text": "Cannot recommend", "explanation": "Insufficient data", "saving_pct": 0}}, "additional_recommendation": [], "base_of_recommendations": {metrics_list_str}}}, "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}}, "anomalies": [], "contract_deal": {{"assessment": "unknown", "for_sku": "{current_sku}", "reason": "Insufficient data", "monthly_saving_pct": 0, "annual_saving_pct": 0}}}}"""
+    if not has_metrics or current_sku == "N/A" or current_sku == "None":
+        return f"""Azure VM {resource_id} | {current_sku} | {duration_days}d
+ISSUE: {'No metrics' if not has_metrics else 'Unknown SKU'}
+OUTPUT: {{"recommendations": {{"effective_recommendation": {{"text": "Cannot recommend", "explanation": "Insufficient data", "saving_pct": 0}}, "additional_recommendation": [], "base_of_recommendations": []}}, "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}}, "anomalies": [], "contract_deal": {{"assessment": "unknown", "for_sku": "{current_sku}", "reason": "Insufficient data", "monthly_saving_pct": 0, "annual_saving_pct": 0}}}}"""
 
-    return f"""Azure VM {resource_id} | {current_sku} | {duration_days}d | ${monthly_forecast:.2f}/mo
+    # Prepare full resource data for LLM to analyze
+    resource_data_str = f"""
+RESOURCE: {current_sku} in {region}
+PERIOD: {duration_days} days
+BILLED_COST: {billed_cost:.4f}
+MONTHLY_FORECAST: {monthly_forecast:.2f}
+ANNUAL_FORECAST: {annual_forecast:.2f}
+ESTIMATED_USAGE: {estimated_hours:.2f} hours/month
+CURRENT_RATE: {current_hourly_rate:.4f}/hour
 
 METRICS:
 {metrics_text}
 
-PRICING:
+ALTERNATIVE_SKUS:
 {pricing_context}
+"""
 
-USAGE: {estimated_hours:.2f}hrs @ ${current_hourly_rate:.4f}/hr
+    return f"""Analyze this Azure VM and provide cost optimization recommendations.
 
-RULES:
-1. EXPLANATION STRUCTURE (2 parts):
-   Part A - Metrics Analysis (WHY): Analyze metrics first. Explain theoretically WHY this recommendation makes sense based on resource utilization patterns.
-   Part B - Cost Calculation (MATH): Then show calculations with actual SKU names.
-   Example: "The {current_sku} shows low CPU (Avg=2%, Max=5%) and memory usage, indicating over-provisioning. Switching to Standard_D2s_v3 at $0.096/hr × {estimated_hours:.2f}hrs/mo = $X/mo vs current {current_sku} at ${monthly_forecast:.2f}/mo saves $Y (Z%)"
+{resource_data_str}
 
-2. Use ACTUAL SKU NAMES in explanations:
-   - Always mention "{current_sku}" by name, not "current"
-   - Mention alternative SKU by name (e.g., "Standard_D2s_v3"), not "alternative"
-   - Format: "{current_sku} → Alternative_SKU_Name"
+INSTRUCTIONS:
+1. Analyze all resource data above (metrics, usage patterns, costs)
+2. Determine what recommendations are appropriate based on the data
+3. For each recommendation:
+   - First explain WHY (theoretical analysis of metrics and usage patterns)
+   - Then show calculations (mathematical proof with actual SKU names and numbers)
+4. Use actual SKU names (e.g., "{current_sku}", not "current")
+5. Only recommend if it saves money (positive savings)
+6. Each recommendation must be a DIFFERENT type of action:
+   - Consider: SKU resize, reserved instances, usage schedules, spot instances, deallocate unused, optimization features
+   - Pick the ones that make sense for THIS resource's specific data
+7. For base_of_recommendations: select the metrics YOU used to make your decision
+8. For contract_deal: analyze if reserved pricing makes sense for THIS usage pattern
 
-3. CRITICAL: Only recommend if savings $ > 0. If savings $ ≤ 0, DO NOT recommend (skip it).
-
-4. Each recommendation MUST be DIFFERENT ACTION CATEGORY:
-   - SKU resize, reserved pricing, usage schedules, spot instances, feature optimization
-   - NOT three different SKU sizes
-
-5. contract_deal MUST have theoretical reasoning:
-   - Analyze usage pattern ({estimated_hours:.2f}hrs/mo vs 730hrs/mo)
-   - If usage is consistent and high, reserved pricing is good
-   - If usage is low/sporadic, reserved pricing is bad
-   - Show: "assessment", "for_sku", "reason" (usage-based), "monthly_saving_pct", "annual_saving_pct"
-
-OUTPUT (JSON):
+OUTPUT FORMAT (JSON):
 {{
   "recommendations": {{
-    "effective_recommendation": {{"text": "Action", "explanation": "Metrics + cost calc", "saving_pct": <num>}},
+    "effective_recommendation": {{"text": "action description", "explanation": "theoretical WHY + calculation MATH", "saving_pct": number}},
     "additional_recommendation": [
-      {{"text": "Unique type", "explanation": "Metrics + cost calc", "saving_pct": <num>}},
-      {{"text": "Another unique type", "explanation": "Metrics + cost calc", "saving_pct": <num>}}
+      {{"text": "action description", "explanation": "theoretical WHY + calculation MATH", "saving_pct": number}}
     ],
-    "base_of_recommendations": {metrics_list_str}
+    "base_of_recommendations": ["metric1: value", "metric2: value"]
   }},
   "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}},
-  "anomalies": [{{"metric_name": "Name", "timestamp": "MaxDate", "value": <num>, "reason_short": "Why unusual"}}],
-  "contract_deal": {{"assessment": "good|bad|unknown", "for_sku": "{current_sku}", "reason": "Reserved vs on-demand for {current_sku}", "monthly_saving_pct": <num>, "annual_saving_pct": <num>}}
+  "anomalies": [{{"metric_name": "name", "timestamp": "date", "value": number, "reason_short": "why unusual"}}],
+  "contract_deal": {{"assessment": "good|bad|unknown", "for_sku": "{current_sku}", "reason": "theoretical analysis of usage pattern", "monthly_saving_pct": number, "annual_saving_pct": number}}
 }}"""
 
 # --- EXPORTED LLM CALL FUNCTIONS (with logging) ---
