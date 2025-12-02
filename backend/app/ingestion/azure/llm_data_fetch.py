@@ -59,7 +59,11 @@ def _is_resource_for_type(resource_type: str, resource_id: Optional[str]) -> boo
         # ARM path fragment check for VMs
         return ("/virtualmachines/" in rid) or ("/compute/virtualmachines" in rid)
     if t in ("storage", "storageaccount", "storage_account"):
-        return ("/storageaccounts/" in rid) or ("/storage/" in rid)
+        # Only match main storage accounts, not subservices
+        has_storage = ("/storageaccounts/" in rid) or ("/storage/" in rid)
+        is_subservice = ("/blobservices/" in rid or "/fileservices/" in rid or
+                        "/queueservices/" in rid or "/tableservices/" in rid)
+        return has_storage and not is_subservice
     # default: accept if unknown type
     return True
 
@@ -508,7 +512,13 @@ def fetch_storage_account_utilization_data(
             sku,
             access_tier
         FROM {schema_name}.dim_storage_account
-        {resource_filter_dim}
+        WHERE 1=1
+            -- Only include main storage accounts, exclude subservices
+            AND LOWER(resource_id) NOT LIKE '%%/blobservices/%%'
+            AND LOWER(resource_id) NOT LIKE '%%/fileservices/%%'
+            AND LOWER(resource_id) NOT LIKE '%%/queueservices/%%'
+            AND LOWER(resource_id) NOT LIKE '%%/tableservices/%%'
+            {resource_filter_dim.replace('WHERE', 'AND') if resource_filter_dim else ''}
     )
 
     SELECT

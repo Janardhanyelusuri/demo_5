@@ -75,43 +75,65 @@ def get_ec2_current_pricing(conn, schema_name: str, instance_type: str, region: 
 @connection
 def get_ec2_alternative_pricing(conn, schema_name: str, current_instance: str, region: str = "us-east-1", max_results: int = 10) -> List[Dict]:
     """
-    Get alternative EC2 instance types with pricing for comparison.
+    Get DIVERSE alternative EC2 instance types with pricing for comparison.
+    Fetches different instance families (t3, m5, c5, r5, etc.), not just upsize/downsize of same family.
 
     Args:
         conn: Database connection
         schema_name: Schema name
         current_instance: Current instance type
         region: AWS region
-        max_results: Maximum number of alternatives
+        max_results: Maximum number of alternatives (will get mix of cheaper/similar/more expensive)
 
     Returns:
-        List of alternative instance pricing dicts
+        List of alternative instance pricing dicts from diverse families
     """
-    # Extract instance family (e.g., 't2' from 't2.micro')
-    instance_family = None
-    if current_instance and '.' in current_instance:
-        instance_family = current_instance.split('.')[0]
-
-    query = f"""
-        SELECT DISTINCT
-            instance_type,
-            vcpu,
-            memory,
-            network_performance,
-            price_per_hour,
-            currency,
-            instance_family
+    # First get current instance price to determine cheaper/similar/more expensive alternatives
+    current_price_query = f"""
+        SELECT price_per_hour
         FROM {schema_name}.aws_pricing_ec2
         WHERE LOWER(region) = LOWER(%s)
-          AND instance_type != %s
-          AND instance_type IS NOT NULL
-        ORDER BY price_per_hour ASC
-        LIMIT %s
+          AND instance_type = %s
+        LIMIT 1
     """
 
     try:
         cursor = conn.cursor()
-        cursor.execute(query, (region, current_instance, max_results))
+        cursor.execute(current_price_query, (region, current_instance))
+        current_price_result = cursor.fetchone()
+        current_price = float(current_price_result[0]) if current_price_result and current_price_result[0] else 0.0
+
+        # Get diverse alternatives: cheaper options, similar price, and more expensive
+        # Use UNION to get mix from different price ranges and different families
+        query = f"""
+            (
+                -- Cheaper alternatives (different families)
+                SELECT DISTINCT instance_type, vcpu, memory, network_performance, price_per_hour, currency, instance_family
+                FROM {schema_name}.aws_pricing_ec2
+                WHERE LOWER(region) = LOWER(%s)
+                  AND instance_type != %s
+                  AND instance_type IS NOT NULL
+                  AND price_per_hour < %s
+                  AND price_per_hour > 0
+                ORDER BY price_per_hour DESC
+                LIMIT {max(2, max_results // 2)}
+            )
+            UNION ALL
+            (
+                -- More expensive alternatives (different families for upsize)
+                SELECT DISTINCT instance_type, vcpu, memory, network_performance, price_per_hour, currency, instance_family
+                FROM {schema_name}.aws_pricing_ec2
+                WHERE LOWER(region) = LOWER(%s)
+                  AND instance_type != %s
+                  AND instance_type IS NOT NULL
+                  AND price_per_hour > %s
+                  AND price_per_hour > 0
+                ORDER BY price_per_hour ASC
+                LIMIT {max(2, max_results // 2)}
+            )
+        """
+
+        cursor.execute(query, (region, current_instance, current_price, region, current_instance, current_price))
         results = cursor.fetchall()
 
         alternatives = []
@@ -123,11 +145,11 @@ def get_ec2_alternative_pricing(conn, schema_name: str, current_instance: str, r
                 'network_performance': row[3],
                 'price_per_hour': float(row[4]) if row[4] else 0.0,
                 'currency': row[5],
-                'instance_family': row[6],
-                'monthly_cost': float(row[4]) * 730 if row[4] else 0.0
+                'instance_family': row[6]
             })
 
-        return alternatives
+        print(f"  Found {len(alternatives)} diverse alternatives across different EC2 instance families")
+        return alternatives[:max_results]
 
     except Exception as e:
         print(f"Error fetching alternative EC2 pricing: {e}")
@@ -135,20 +157,22 @@ def get_ec2_alternative_pricing(conn, schema_name: str, current_instance: str, r
 
 
 @connection
-def get_s3_storage_class_pricing(conn, schema_name: str, region: str = "us-east-1") -> Dict:
+def get_s3_storage_class_pricing(conn, schema_name: str, region: str = "us-east-1", max_results: int = 10) -> list:
     """
-    Get S3 storage class pricing for different tiers.
+    Get DIVERSE S3 storage class pricing for comparison.
+    Fetches different storage classes (Standard, IA, Intelligent-Tiering, Glacier, Deep Archive).
 
     Args:
         conn: Database connection
         schema_name: Schema name
         region: AWS region
+        max_results: Maximum number of diverse alternatives
 
     Returns:
-        Dict with S3 pricing by storage class
+        List of diverse S3 storage class pricing dicts
     """
     query = f"""
-        SELECT
+        SELECT DISTINCT
             storage_class,
             description,
             price_per_unit,
@@ -158,31 +182,32 @@ def get_s3_storage_class_pricing(conn, schema_name: str, region: str = "us-east-
         WHERE LOWER(region) = LOWER(%s)
           AND storage_class IS NOT NULL
           AND unit LIKE '%%GB%%'
+          AND price_per_unit > 0
         ORDER BY price_per_unit ASC
-        LIMIT 20
+        LIMIT %s
     """
 
     try:
         cursor = conn.cursor()
-        cursor.execute(query, (region,))
+        cursor.execute(query, (region, max_results))
         results = cursor.fetchall()
 
-        pricing_by_class = {}
+        storage_options = []
         for row in results:
-            storage_class = row[0] or 'Unknown'
-            pricing_by_class[storage_class] = {
+            storage_options.append({
                 'storage_class': row[0],
                 'description': row[1],
                 'price_per_unit': float(row[2]) if row[2] else 0.0,
                 'unit': row[3],
                 'usage_type': row[4]
-            }
+            })
 
-        return pricing_by_class
+        print(f"  Found {len(storage_options)} diverse S3 storage classes")
+        return storage_options
 
     except Exception as e:
         print(f"Error fetching S3 pricing: {e}")
-        return {}
+        return []
 
 
 @connection
@@ -238,63 +263,46 @@ def get_ebs_volume_pricing(conn, schema_name: str, region: str = "us-east-1") ->
         return []
 
 
-def format_ec2_pricing_for_llm(current_pricing: Optional[Dict], alternatives: List[Dict]) -> str:
+def format_ec2_pricing_for_llm(alternatives: List[Dict]) -> str:
     """
     Format EC2 pricing data for LLM context.
     Condensed format to reduce token usage.
 
     Args:
-        current_pricing: Current instance pricing dict
-        alternatives: List of alternative instance pricing dicts (max 3 will be used)
+        alternatives: List of alternative instance pricing dicts (max 4 will be used)
 
     Returns:
         Formatted string for LLM prompt
     """
+    if not alternatives:
+        return "EC2 ALTERNATIVES: None available"
+
     output = []
-
-    if current_pricing:
-        output.append(f"CURRENT: {current_pricing['instance_type']} ({current_pricing['vcpu']}vCPU, {current_pricing['memory']}) = ${current_pricing['price_per_hour']:.4f}/hr")
-    else:
-        output.append("CURRENT: Not available")
-
-    if alternatives:
-        # Only send top 3 alternatives to reduce token usage
-        for i, alt in enumerate(alternatives[:3], 1):
-            output.append(f"ALT{i}: {alt['instance_type']} ({alt['vcpu']}vCPU, {alt['memory']}) = ${alt['price_per_hour']:.4f}/hr")
-    else:
-        output.append("ALTERNATIVES: None available")
+    # Only send top 4 alternatives to reduce token usage
+    for i, alt in enumerate(alternatives[:4], 1):
+        output.append(f"ALT{i}: {alt['instance_type']} ({alt['vcpu']}vCPU, {alt['memory']}) = {alt['price_per_hour']:.4f}/hr")
 
     return "\n".join(output)
 
 
-def format_s3_pricing_for_llm(s3_pricing: Dict, current_class: str = "STANDARD") -> str:
+def format_s3_pricing_for_llm(s3_pricing: list) -> str:
     """
     Format S3 storage class pricing data for LLM context.
     Condensed format to reduce token usage.
 
     Args:
-        s3_pricing: S3 pricing dict by storage class
-        current_class: Current storage class
+        s3_pricing: List of S3 pricing dicts
 
     Returns:
         Formatted string for LLM prompt
     """
     if not s3_pricing:
-        return "S3 STORAGE PRICING: Not available"
+        return "S3 STORAGE CLASSES: Not available"
 
     output = []
-
-    # Show current class first if available
-    if current_class in s3_pricing:
-        info = s3_pricing[current_class]
-        output.append(f"CURRENT ({current_class}): {info['price_per_unit']:.5f}/{info['unit']}")
-
-    # Only send top 3 alternatives to reduce token usage
-    alternatives_count = 0
-    for storage_class, info in s3_pricing.items():
-        if storage_class != current_class and alternatives_count < 3:
-            output.append(f"ALT{alternatives_count + 1} ({storage_class}): {info['price_per_unit']:.5f}/{info['unit']}")
-            alternatives_count += 1
+    # Only send top 5 options to reduce token usage
+    for idx, option in enumerate(s3_pricing[:5], 1):
+        output.append(f"CLASS{idx}: {option['storage_class']} = {option['price_per_unit']:.5f}/{option['unit']}")
 
     return "\n".join(output)
 

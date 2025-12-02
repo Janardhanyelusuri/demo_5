@@ -75,48 +75,68 @@ def get_vm_current_pricing(conn, schema_name: str, sku_name: str, region: str = 
 @connection
 def get_vm_alternative_pricing(conn, schema_name: str, current_sku: str, region: str = "eastus", max_results: int = 10) -> List[Dict]:
     """
-    Get alternative VM SKUs with pricing for comparison.
+    Get DIVERSE alternative VM SKUs with pricing for comparison.
+    Fetches different series/families, not just upsize/downsize of same type.
 
     Args:
         conn: Database connection
         schema_name: Schema name
         current_sku: Current VM SKU
         region: Azure region
-        max_results: Maximum number of alternatives
+        max_results: Maximum number of alternatives (will try to get mix of cheaper/similar/more expensive)
 
     Returns:
-        List of alternative SKU pricing dicts
+        List of alternative SKU pricing dicts from diverse series (B, D, E, F, etc.)
     """
-    # Extract SKU family (e.g., 'D' from 'Standard_D4s_v3')
-    sku_family = None
-    if current_sku and '_' in current_sku:
-        parts = current_sku.split('_')
-        if len(parts) >= 2:
-            # Extract letter from size (e.g., 'D' from 'D4s')
-            size_part = parts[1]
-            if size_part:
-                sku_family = size_part[0]
-
-    query = f"""
-        SELECT DISTINCT
-            sku_name,
-            product_name,
-            retail_price,
-            currency_code,
-            unit_of_measure,
-            meter_name
+    # First get current SKU price to determine cheaper/similar/more expensive alternatives
+    current_price_query = f"""
+        SELECT retail_price
         FROM {schema_name}.azure_pricing_vm
         WHERE LOWER(arm_region_name) = LOWER(%s)
+          AND sku_name = %s
           AND meter_name LIKE '%%Compute%%'
-          AND sku_name != %s
-          AND sku_name IS NOT NULL
-        ORDER BY retail_price ASC
-        LIMIT %s
+        LIMIT 1
     """
 
     try:
         cursor = conn.cursor()
-        cursor.execute(query, (region, current_sku, max_results))
+        cursor.execute(current_price_query, (region, current_sku))
+        current_price_result = cursor.fetchone()
+        current_price = float(current_price_result[0]) if current_price_result and current_price_result[0] else 0.0
+
+        # Get diverse alternatives: cheaper options, similar price, and more expensive
+        # Use UNION to get mix from different price ranges and different series
+        query = f"""
+            (
+                -- Cheaper alternatives (different series)
+                SELECT DISTINCT sku_name, product_name, retail_price, currency_code, unit_of_measure, meter_name
+                FROM {schema_name}.azure_pricing_vm
+                WHERE LOWER(arm_region_name) = LOWER(%s)
+                  AND meter_name LIKE '%%Compute%%'
+                  AND sku_name != %s
+                  AND sku_name IS NOT NULL
+                  AND retail_price < %s
+                  AND retail_price > 0
+                ORDER BY retail_price DESC
+                LIMIT {max(2, max_results // 2)}
+            )
+            UNION ALL
+            (
+                -- More expensive alternatives (different series for upsize)
+                SELECT DISTINCT sku_name, product_name, retail_price, currency_code, unit_of_measure, meter_name
+                FROM {schema_name}.azure_pricing_vm
+                WHERE LOWER(arm_region_name) = LOWER(%s)
+                  AND meter_name LIKE '%%Compute%%'
+                  AND sku_name != %s
+                  AND sku_name IS NOT NULL
+                  AND retail_price > %s
+                  AND retail_price > 0
+                ORDER BY retail_price ASC
+                LIMIT {max(2, max_results // 2)}
+            )
+        """
+
+        cursor.execute(query, (region, current_sku, current_price, region, current_sku, current_price))
         results = cursor.fetchall()
 
         alternatives = []
@@ -127,11 +147,11 @@ def get_vm_alternative_pricing(conn, schema_name: str, current_sku: str, region:
                 'retail_price': float(row[2]) if row[2] else 0.0,
                 'currency_code': row[3],
                 'unit_of_measure': row[4],
-                'meter_name': row[5],
-                'monthly_cost': float(row[2]) * 730 if row[2] else 0.0
+                'meter_name': row[5]
             })
 
-        return alternatives
+        print(f"  Found {len(alternatives)} diverse alternatives across different VM series")
+        return alternatives[:max_results]
 
     except Exception as e:
         print(f"Error fetching alternative VM pricing: {e}")
@@ -139,20 +159,23 @@ def get_vm_alternative_pricing(conn, schema_name: str, current_sku: str, region:
 
 
 @connection
-def get_storage_pricing_context(conn, schema_name: str, region: str = "eastus") -> Dict:
+def get_storage_pricing_context(conn, schema_name: str, region: str = "eastus", max_results: int = 10) -> list:
     """
-    Get storage pricing context for different tiers and operations.
+    Get DIVERSE storage pricing options for comparison.
+    Fetches different tiers (Hot/Cool/Archive), redundancy (LRS/GRS/ZRS), and account types.
 
     Args:
         conn: Database connection
         schema_name: Schema name
         region: Azure region
+        max_results: Maximum number of diverse alternatives
 
     Returns:
-        Dict with storage pricing by tier
+        List of diverse storage option pricing dicts
     """
+    # Get diverse storage options across tiers and redundancy
     query = f"""
-        SELECT
+        SELECT DISTINCT
             sku_name,
             product_name,
             meter_name,
@@ -164,48 +187,51 @@ def get_storage_pricing_context(conn, schema_name: str, region: str = "eastus") 
               meter_name LIKE '%%Data Stored%%'
               OR meter_name LIKE '%%Capacity%%'
           )
+          AND retail_price > 0
         ORDER BY retail_price ASC
-        LIMIT 20
+        LIMIT %s
     """
 
     try:
         cursor = conn.cursor()
-        cursor.execute(query, (region,))
+        cursor.execute(query, (region, max_results))
         results = cursor.fetchall()
 
-        pricing_by_tier = {}
+        alternatives = []
         for row in results:
-            tier_key = row[0] or 'Unknown'
-            pricing_by_tier[tier_key] = {
+            alternatives.append({
                 'sku_name': row[0],
                 'product_name': row[1],
                 'meter_name': row[2],
                 'retail_price': float(row[3]) if row[3] else 0.0,
                 'unit_of_measure': row[4]
-            }
+            })
 
-        return pricing_by_tier
+        print(f"  Found {len(alternatives)} diverse storage options across different tiers/redundancy")
+        return alternatives
 
     except Exception as e:
         print(f"Error fetching storage pricing: {e}")
-        return {}
+        return []
 
 
 @connection
-def get_public_ip_pricing_context(conn, schema_name: str, region: str = "eastus") -> Dict:
+def get_public_ip_pricing_context(conn, schema_name: str, region: str = "eastus", max_results: int = 5) -> list:
     """
-    Get public IP pricing context.
+    Get DIVERSE public IP pricing options for comparison.
+    Fetches different SKUs (Basic/Standard) and allocation methods (Static/Dynamic).
 
     Args:
         conn: Database connection
         schema_name: Schema name
         region: Azure region
+        max_results: Maximum number of diverse alternatives
 
     Returns:
-        Dict with IP pricing info
+        List of diverse public IP option pricing dicts
     """
     query = f"""
-        SELECT
+        SELECT DISTINCT
             sku_name,
             product_name,
             meter_name,
@@ -213,13 +239,14 @@ def get_public_ip_pricing_context(conn, schema_name: str, region: str = "eastus"
             unit_of_measure
         FROM {schema_name}.azure_pricing_ip
         WHERE LOWER(arm_region_name) = LOWER(%s)
+          AND retail_price > 0
         ORDER BY retail_price ASC
-        LIMIT 5
+        LIMIT %s
     """
 
     try:
         cursor = conn.cursor()
-        cursor.execute(query, (region,))
+        cursor.execute(query, (region, max_results))
         results = cursor.fetchall()
 
         pricing_options = []
@@ -229,18 +256,15 @@ def get_public_ip_pricing_context(conn, schema_name: str, region: str = "eastus"
                 'product_name': row[1],
                 'meter_name': row[2],
                 'retail_price': float(row[3]) if row[3] else 0.0,
-                'unit_of_measure': row[4],
-                'monthly_cost': float(row[3]) * 730 if row[3] else 0.0
+                'unit_of_measure': row[4]
             })
 
-        return {
-            'options': pricing_options,
-            'available_tiers': len(pricing_options)
-        }
+        print(f"  Found {len(pricing_options)} diverse public IP options")
+        return pricing_options
 
     except Exception as e:
         print(f"Error fetching IP pricing: {e}")
-        return {'options': [], 'available_tiers': 0}
+        return []
 
 
 def format_vm_pricing_for_llm(current_pricing: Optional[Dict], alternatives: List[Dict]) -> str:
@@ -272,13 +296,13 @@ def format_vm_pricing_for_llm(current_pricing: Optional[Dict], alternatives: Lis
     return "\n".join(output)
 
 
-def format_storage_pricing_for_llm(storage_pricing: Dict) -> str:
+def format_storage_pricing_for_llm(storage_pricing: list) -> str:
     """
     Format storage pricing data for LLM context.
     Condensed format to reduce token usage.
 
     Args:
-        storage_pricing: Storage pricing dict by tier
+        storage_pricing: List of storage pricing dicts
 
     Returns:
         Formatted string for LLM prompt
@@ -287,32 +311,30 @@ def format_storage_pricing_for_llm(storage_pricing: Dict) -> str:
         return "STORAGE PRICING: Not available"
 
     output = []
-    # Only send top 3 tiers to reduce token usage
-    for idx, (tier, info) in enumerate(list(storage_pricing.items())[:3], 1):
-        output.append(f"TIER{idx}: {info['meter_name']} = {info['retail_price']:.5f}/{info['unit_of_measure']}")
+    # Only send top 5 options to reduce token usage
+    for idx, option in enumerate(storage_pricing[:5], 1):
+        output.append(f"OPT{idx}: {option['meter_name']} = {option['retail_price']:.5f}/{option['unit_of_measure']}")
 
     return "\n".join(output)
 
 
-def format_ip_pricing_for_llm(ip_pricing: Dict) -> str:
+def format_ip_pricing_for_llm(ip_pricing: list) -> str:
     """
     Format public IP pricing data for LLM context.
     Condensed format to reduce token usage.
 
     Args:
-        ip_pricing: IP pricing dict
+        ip_pricing: List of IP pricing dicts
 
     Returns:
         Formatted string for LLM prompt
     """
-    options = ip_pricing.get('options', [])
-
-    if not options:
+    if not ip_pricing:
         return "PUBLIC IP PRICING: Not available"
 
     output = []
-    # Only send top 2 options to reduce token usage
-    for idx, opt in enumerate(options[:2], 1):
-        output.append(f"OPT{idx}: {opt['meter_name']} = ${opt['retail_price']:.5f}/hr")
+    # Only send top 4 options to reduce token usage
+    for idx, opt in enumerate(ip_pricing[:4], 1):
+        output.append(f"OPT{idx}: {opt['meter_name']} = {opt['retail_price']:.5f}/{opt['unit_of_measure']}")
 
     return "\n".join(output)
