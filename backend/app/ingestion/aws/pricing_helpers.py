@@ -157,20 +157,22 @@ def get_ec2_alternative_pricing(conn, schema_name: str, current_instance: str, r
 
 
 @connection
-def get_s3_storage_class_pricing(conn, schema_name: str, region: str = "us-east-1") -> Dict:
+def get_s3_storage_class_pricing(conn, schema_name: str, region: str = "us-east-1", max_results: int = 10) -> list:
     """
-    Get S3 storage class pricing for different tiers.
+    Get DIVERSE S3 storage class pricing for comparison.
+    Fetches different storage classes (Standard, IA, Intelligent-Tiering, Glacier, Deep Archive).
 
     Args:
         conn: Database connection
         schema_name: Schema name
         region: AWS region
+        max_results: Maximum number of diverse alternatives
 
     Returns:
-        Dict with S3 pricing by storage class
+        List of diverse S3 storage class pricing dicts
     """
     query = f"""
-        SELECT
+        SELECT DISTINCT
             storage_class,
             description,
             price_per_unit,
@@ -180,31 +182,32 @@ def get_s3_storage_class_pricing(conn, schema_name: str, region: str = "us-east-
         WHERE LOWER(region) = LOWER(%s)
           AND storage_class IS NOT NULL
           AND unit LIKE '%%GB%%'
+          AND price_per_unit > 0
         ORDER BY price_per_unit ASC
-        LIMIT 20
+        LIMIT %s
     """
 
     try:
         cursor = conn.cursor()
-        cursor.execute(query, (region,))
+        cursor.execute(query, (region, max_results))
         results = cursor.fetchall()
 
-        pricing_by_class = {}
+        storage_options = []
         for row in results:
-            storage_class = row[0] or 'Unknown'
-            pricing_by_class[storage_class] = {
+            storage_options.append({
                 'storage_class': row[0],
                 'description': row[1],
                 'price_per_unit': float(row[2]) if row[2] else 0.0,
                 'unit': row[3],
                 'usage_type': row[4]
-            }
+            })
 
-        return pricing_by_class
+        print(f"  Found {len(storage_options)} diverse S3 storage classes")
+        return storage_options
 
     except Exception as e:
         print(f"Error fetching S3 pricing: {e}")
-        return {}
+        return []
 
 
 @connection
@@ -282,34 +285,24 @@ def format_ec2_pricing_for_llm(alternatives: List[Dict]) -> str:
     return "\n".join(output)
 
 
-def format_s3_pricing_for_llm(s3_pricing: Dict, current_class: str = "STANDARD") -> str:
+def format_s3_pricing_for_llm(s3_pricing: list) -> str:
     """
     Format S3 storage class pricing data for LLM context.
     Condensed format to reduce token usage.
 
     Args:
-        s3_pricing: S3 pricing dict by storage class
-        current_class: Current storage class
+        s3_pricing: List of S3 pricing dicts
 
     Returns:
         Formatted string for LLM prompt
     """
     if not s3_pricing:
-        return "S3 STORAGE PRICING: Not available"
+        return "S3 STORAGE CLASSES: Not available"
 
     output = []
-
-    # Show current class first if available
-    if current_class in s3_pricing:
-        info = s3_pricing[current_class]
-        output.append(f"CURRENT ({current_class}): {info['price_per_unit']:.5f}/{info['unit']}")
-
-    # Only send top 3 alternatives to reduce token usage
-    alternatives_count = 0
-    for storage_class, info in s3_pricing.items():
-        if storage_class != current_class and alternatives_count < 3:
-            output.append(f"ALT{alternatives_count + 1} ({storage_class}): {info['price_per_unit']:.5f}/{info['unit']}")
-            alternatives_count += 1
+    # Only send top 5 options to reduce token usage
+    for idx, option in enumerate(s3_pricing[:5], 1):
+        output.append(f"CLASS{idx}: {option['storage_class']} = {option['price_per_unit']:.5f}/{option['unit']}")
 
     return "\n".join(output)
 

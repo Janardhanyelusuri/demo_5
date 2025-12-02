@@ -257,50 +257,47 @@ def generate_s3_prompt(bucket_data: dict, monthly_forecast: float, annual_foreca
     # Fetch S3 storage class pricing from database
     schema_name = bucket_data.get('schema_name', '')
 
+    s3_pricing = []
     pricing_context = ""
     has_pricing = False
+
     if schema_name:
         try:
-            s3_pricing = get_s3_storage_class_pricing(schema_name, region)
-            # Assume current storage class is S3 Standard (most common default)
-            current_class = "STANDARD"
+            # Only fetch DIVERSE storage classes (5 options)
+            s3_pricing = get_s3_storage_class_pricing(schema_name, region, max_results=5)
 
             # Debug: Print fetched pricing
             print(f"\n{'='*60}")
             print(f"PRICING DEBUG - AWS S3: {bucket_name} in {region}")
             print(f"{'='*60}")
-            print(f"CURRENT STORAGE CLASS: {current_class} (assumed)")
 
             if s3_pricing and len(s3_pricing) > 0:
                 has_pricing = True
-                print(f"\nS3 STORAGE CLASS PRICING (Top 5):")
-                for idx, (storage_class, info) in enumerate(list(s3_pricing.items())[:5], 1):
-                    marker = "← CURRENT" if storage_class == current_class else ""
-                    print(f"  {idx}. {storage_class}: {info['price_per_unit']:.6f} per {info['unit']} {marker}")
+                print(f"BUCKET: {bucket_name} (Standard assumed)")
+                print(f"\nDIVERSE STORAGE CLASSES:")
+                for idx, opt in enumerate(s3_pricing, 1):
+                    print(f"  {idx}. {opt['storage_class']}: {opt['price_per_unit']:.6f} per {opt['unit']}")
             else:
-                print(f"\nS3 STORAGE CLASS PRICING: Not found in database")
+                print(f"BUCKET: {bucket_name} (Standard assumed)")
+                print(f"\nS3 STORAGE CLASSES: Not found in database")
                 print(f"Using fallback pricing estimates")
 
-                # Fallback pricing for common S3 storage classes
+                # Fallback: Diverse storage classes
                 has_pricing = True
-                s3_pricing = {
-                    'STANDARD': {'storage_class': 'STANDARD', 'price_per_unit': 0.023, 'unit': 'GB', 'description': 'S3 Standard Storage'},
-                    'STANDARD_IA': {'storage_class': 'STANDARD_IA', 'price_per_unit': 0.0125, 'unit': 'GB', 'description': 'S3 Standard-IA Storage'},
-                    'INTELLIGENT_TIERING': {'storage_class': 'INTELLIGENT_TIERING', 'price_per_unit': 0.023, 'unit': 'GB', 'description': 'S3 Intelligent-Tiering Storage'},
-                    'ONEZONE_IA': {'storage_class': 'ONEZONE_IA', 'price_per_unit': 0.01, 'unit': 'GB', 'description': 'S3 One Zone-IA Storage'},
-                    'GLACIER': {'storage_class': 'GLACIER', 'price_per_unit': 0.004, 'unit': 'GB', 'description': 'S3 Glacier Storage'},
-                    'GLACIER_DEEP_ARCHIVE': {'storage_class': 'GLACIER_DEEP_ARCHIVE', 'price_per_unit': 0.00099, 'unit': 'GB', 'description': 'S3 Glacier Deep Archive Storage'}
-                }
+                s3_pricing = [
+                    {'storage_class': 'GLACIER_DEEP_ARCHIVE', 'price_per_unit': 0.00099, 'unit': 'GB'},
+                    {'storage_class': 'GLACIER', 'price_per_unit': 0.004, 'unit': 'GB'},
+                    {'storage_class': 'ONEZONE_IA', 'price_per_unit': 0.01, 'unit': 'GB'},
+                    {'storage_class': 'STANDARD_IA', 'price_per_unit': 0.0125, 'unit': 'GB'},
+                    {'storage_class': 'STANDARD', 'price_per_unit': 0.023, 'unit': 'GB'},
+                ]
 
-                print(f"  Standard: 0.023 per GB (estimated)")
-                print(f"  Standard-IA: 0.0125 per GB (estimated)")
-                print(f"  Glacier: 0.004 per GB (estimated)")
-                print(f"  Glacier Deep Archive: 0.00099 per GB (estimated)")
-                print(f"  (Fallback estimates - actual pricing unavailable)")
+                for opt in s3_pricing:
+                    print(f"  {opt['storage_class']}: {opt['price_per_unit']:.6f} per GB (estimated)")
 
             print(f"{'='*60}\n")
 
-            pricing_context = "\n\n" + format_s3_pricing_for_llm(s3_pricing, current_class) + "\n"
+            pricing_context = format_s3_pricing_for_llm(s3_pricing)
         except Exception as e:
             LOG.warning(f"Could not fetch S3 pricing: {e}")
             import traceback
@@ -308,31 +305,12 @@ def generate_s3_prompt(bucket_data: dict, monthly_forecast: float, annual_foreca
 
             # Fallback pricing on error
             has_pricing = True
-            pricing_context = f"\n\nPRICING DATA (ESTIMATED - Database unavailable):\nStandard: ~0.023 USD/GB, Standard-IA: ~0.0125 USD/GB, Glacier: ~0.004 USD/GB\n"
-
-    # Check if we have metrics available
-    has_metrics = bool(formatted_metrics)
-
-    # Build metrics list for base_of_recommendations (with units and quotes)
-    metrics_list = []
-    for metric_name, values in formatted_metrics.items():
-        if values.get('Avg') is not None:
-            # Extract unit from metric name if it has one
-            if 'Size' in metric_name or 'Bytes' in metric_name or 'Storage' in metric_name:
-                unit = 'GB'
-            elif 'Requests' in metric_name or 'Count' in metric_name:
-                unit = 'count'
-            elif 'Latency' in metric_name:
-                unit = 'ms'
-            else:
-                unit = ''
-
-            if unit:
-                metrics_list.append(f'"{metric_name}: Avg={values["Avg"]:.2f}{unit}, Max={values.get("Max", 0):.2f}{unit}"')
-            else:
-                metrics_list.append(f'"{metric_name}: Avg={values["Avg"]:.2f}, Max={values.get("Max", 0):.2f}"')
-
-    metrics_list_str = '[' + ', '.join(metrics_list) + ']' if metrics_list else '[]'
+            s3_pricing = [
+                {'storage_class': 'GLACIER', 'price_per_unit': 0.004, 'unit': 'GB'},
+                {'storage_class': 'STANDARD_IA', 'price_per_unit': 0.0125, 'unit': 'GB'},
+                {'storage_class': 'STANDARD', 'price_per_unit': 0.023, 'unit': 'GB'},
+            ]
+            pricing_context = format_s3_pricing_for_llm(s3_pricing)
 
     # Build explicit metric summary (with units)
     metrics_summary = []
@@ -354,56 +332,58 @@ def generate_s3_prompt(bucket_data: dict, monthly_forecast: float, annual_foreca
 
     metrics_text = "\n".join(metrics_summary) if metrics_summary else "No metrics available"
 
+    # Check if we have metrics available
+    has_metrics = bool(formatted_metrics)
+
     # Guard clause for missing data
     if not has_pricing or not has_metrics or bucket_name == "Unknown" or bucket_name == "None":
-        return f"""AWS S3 {bucket_name} | {region} | {duration_days}d | ${billed_cost:.2f}
+        return f"""AWS S3 {bucket_name} | {region} | {duration_days}d | {billed_cost:.2f}
 ISSUE: {'No pricing' if not has_pricing else 'No metrics' if not has_metrics else 'Unknown bucket'}
-OUTPUT: {{"recommendations": {{"effective_recommendation": {{"text": "Cannot recommend", "explanation": "Insufficient data", "saving_pct": 0}}, "additional_recommendation": [], "base_of_recommendations": {metrics_list_str}}}, "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}}, "anomalies": [], "contract_deal": {{"assessment": "unknown", "for_sku": "S3 Standard", "reason": "Insufficient data", "monthly_saving_pct": 0, "annual_saving_pct": 0}}}}"""
+OUTPUT: {{"recommendations": {{"effective_recommendation": {{"text": "Cannot recommend", "explanation": "Insufficient data", "saving_pct": 0}}, "additional_recommendation": [], "base_of_recommendations": []}}, "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}}, "anomalies": [], "contract_deal": {{"assessment": "unknown", "for_sku": "S3 Standard", "reason": "Insufficient data", "monthly_saving_pct": 0, "annual_saving_pct": 0}}}}"""
 
-    prompt = f"""AWS S3 {bucket_name} | {region} | {duration_days}d | ${monthly_forecast:.2f}/mo
+    # Prepare full resource data for LLM to analyze
+    resource_data_str = f"""BUCKET: {bucket_name} in {region}
+PERIOD: {duration_days} days
+BILLED_COST: {billed_cost:.4f}
+MONTHLY_FORECAST: {monthly_forecast:.2f}
+ANNUAL_FORECAST: {annual_forecast:.2f}
 
 METRICS:
 {metrics_text}
 
-PRICING:
+STORAGE_CLASSES:
 {pricing_context}
+"""
 
-RULES:
-1. EXPLANATION STRUCTURE (2 parts):
-   Part A - Metrics Analysis (WHY): Analyze metrics first. Explain theoretically WHY this recommendation makes sense based on access patterns and data characteristics.
-   Part B - Cost Calculation (MATH): Then show calculations with actual storage class names.
-   Example: "Bucket {bucket_name} in {region} shows low GET requests (Avg=10/day) and capacity growth is slow. Objects rarely accessed. Switching to S3 Glacier at $0.004/GB × 100GB = $0.40/mo vs current S3 Standard at ${monthly_forecast:.2f}/mo saves $X (Y%)"
+    prompt = f"""Analyze this AWS S3 bucket and provide cost optimization recommendations.
 
-2. Use ACTUAL NAMES in explanations:
-   - Mention bucket name and current storage class by name
-   - Mention alternative storage class by name (e.g., "S3 Intelligent-Tiering", "S3 Glacier")
-   - Format: "{bucket_name} (Standard) → Storage_Class_Name"
+{resource_data_str}
 
-3. CRITICAL: Only recommend if savings $ > 0. If savings $ ≤ 0, DO NOT recommend (skip it).
-
-4. Each recommendation MUST be DIFFERENT ACTION CATEGORY:
-   - Storage class change, lifecycle policy, versioning cleanup, replication optimization, Intelligent-Tiering
-   - NOT three different storage classes
-
-5. contract_deal MUST have theoretical reasoning:
-   - Analyze data growth rate and access frequency
-   - If data is stable/growing and frequently accessed, reserved capacity is good
-   - If data is volatile or infrequently accessed, reserved capacity is bad
-   - Show: "assessment", "for_sku", "reason" (usage-based), "monthly_saving_pct", "annual_saving_pct"
+INSTRUCTIONS:
+1. Analyze all resource data above (metrics, usage patterns, costs, storage classes)
+2. Determine what recommendations are appropriate based on the data
+3. For each recommendation:
+   - First explain WHY (theoretical analysis of metrics and access patterns)
+   - Then show calculations (mathematical proof with actual storage class names and numbers)
+4. Use actual bucket and storage class names (e.g., "{bucket_name} (Standard)", not "current")
+5. Only recommend if it saves money (positive savings)
+6. Each recommendation must be a DIFFERENT type of action (storage class change, lifecycle policy, versioning cleanup, replication optimization, Intelligent-Tiering - NOT multiple storage class changes)
+7. For base_of_recommendations: select the metrics YOU used to make your decision
+8. For contract_deal: analyze if reserved capacity makes sense for THIS usage pattern (stable/growing data with frequent access = good, volatile or infrequent access = bad)
 
 OUTPUT (JSON):
 {{
   "recommendations": {{
-    "effective_recommendation": {{"text": "Action", "explanation": "Metrics + cost calc", "saving_pct": <num>}},
+    "effective_recommendation": {{"text": "Action", "explanation": "WHY (metrics analysis) + MATH (calculations)", "saving_pct": <num>}},
     "additional_recommendation": [
-      {{"text": "Unique type", "explanation": "Metrics + cost calc", "saving_pct": <num>}},
-      {{"text": "Another unique type", "explanation": "Metrics + cost calc", "saving_pct": <num>}}
+      {{"text": "Different action type", "explanation": "WHY + MATH", "saving_pct": <num>}},
+      {{"text": "Another different action type", "explanation": "WHY + MATH", "saving_pct": <num>}}
     ],
-    "base_of_recommendations": {metrics_list_str}
+    "base_of_recommendations": ["metric1", "metric2"]
   }},
   "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}},
   "anomalies": [{{"metric_name": "Name", "timestamp": "MaxDate", "value": <num>, "reason_short": "Why unusual"}}],
-  "contract_deal": {{"assessment": "good|bad|unknown", "for_sku": "S3 Standard", "reason": "Reserved capacity vs on-demand for Standard", "monthly_saving_pct": <num>, "annual_saving_pct": <num>}}
+  "contract_deal": {{"assessment": "good|bad|unknown", "for_sku": "S3 Standard", "reason": "Theoretical analysis of usage pattern", "monthly_saving_pct": <num>, "annual_saving_pct": <num>}}
 }}"""
     return prompt
 
