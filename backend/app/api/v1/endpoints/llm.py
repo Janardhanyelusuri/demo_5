@@ -172,6 +172,14 @@ async def llm_aws(
             else:
                 result_list = []
 
+            # Validate JSON serialization
+            try:
+                test_json = json.dumps(result_list)
+                print(f'✅ JSON validation passed, serialized {len(test_json)} characters')
+            except (TypeError, ValueError) as e:
+                print(f'❌ JSON serialization failed: {e}')
+                result_list = []
+
             # Save to cache (async) - but only if task was NOT cancelled
             if result_list and not task_manager.is_cancelled(task_id):
                 await save_to_cache(
@@ -279,6 +287,14 @@ async def llm_azure(
                 result_list = [result] if isinstance(result, dict) else result
                 print(f'Final response__list: {len(result_list)} resources processed')
             else:
+                result_list = []
+
+            # Validate JSON serialization
+            try:
+                test_json = json.dumps(result_list)
+                print(f'✅ JSON validation passed, serialized {len(test_json)} characters')
+            except (TypeError, ValueError) as e:
+                print(f'❌ JSON serialization failed: {e}')
                 result_list = []
 
             # Save to cache (async) - but only if task was NOT cancelled
