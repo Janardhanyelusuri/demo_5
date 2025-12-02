@@ -427,16 +427,27 @@ PRICING:
 USAGE: {estimated_hours:.2f}hrs @ ${current_hourly_rate:.4f}/hr
 
 RULES:
-1. Cite metrics with units (e.g., "CPU Avg=5.2%, Max=12.3%")
-2. Show ALL calculations in explanation:
-   - Alt monthly cost = alt_hourly_rate × {estimated_hours:.2f}hrs/month
-   - Savings $ = ${monthly_forecast:.2f} - alt_monthly_cost
-   - savings_pct = (savings $ / ${monthly_forecast:.2f}) × 100
-   - Example: "Current: ${monthly_forecast:.2f}/mo, Alt: $0.50/hr × {estimated_hours:.2f}hrs/mo = $X/mo, Savings: ${monthly_forecast:.2f} - $X = $Y (Z%)"
-3. CRITICAL: Only recommend if savings $ > 0. If savings $ ≤ 0, DO NOT recommend (costs more or same). Skip that recommendation.
-4. Each recommendation must be DIFFERENT ACTION CATEGORY. Do NOT give same action 3 times (e.g., NOT resize to 3 different instance types). Consider: instance type changes, pricing models (RI/savings/spot), usage schedules, optimization features
-5. Anomalies: metric name, timestamp, value, reason
-6. contract_deal: RI/savings plan vs on-demand for {instance_type} only
+1. EXPLANATION STRUCTURE (2 parts):
+   Part A - Metrics Analysis (WHY): Analyze metrics first. Explain theoretically WHY this recommendation makes sense based on resource utilization patterns.
+   Part B - Cost Calculation (MATH): Then show calculations with actual instance type names.
+   Example: "Instance {instance_type} shows low CPU (Avg=2%, Max=5%) and network usage, indicating over-provisioning. Switching to t3.medium at $0.0416/hr × {estimated_hours:.2f}hrs/mo = $X/mo vs current {instance_type} at ${monthly_forecast:.2f}/mo saves $Y (Z%)"
+
+2. Use ACTUAL INSTANCE TYPE NAMES in explanations:
+   - Always mention "{instance_type}" by name, not "current"
+   - Mention alternative instance type by name (e.g., "t3.medium"), not "alternative"
+   - Format: "{instance_type} → Alternative_Instance_Type"
+
+3. CRITICAL: Only recommend if savings $ > 0. If savings $ ≤ 0, DO NOT recommend (skip it).
+
+4. Each recommendation MUST be DIFFERENT ACTION CATEGORY:
+   - Instance type resize, Reserved Instance/Savings Plan, spot instance, usage schedule, optimization (EBS, network)
+   - NOT three different instance types
+
+5. contract_deal MUST have theoretical reasoning:
+   - Analyze usage pattern ({estimated_hours:.2f}hrs/mo vs 730hrs/mo)
+   - If usage is consistent and high (>500hrs/mo), RI/Savings Plan is good
+   - If usage is low/sporadic (<200hrs/mo), RI/Savings Plan is bad
+   - Show: "assessment", "for_sku", "reason" (usage-based), "monthly_saving_pct", "annual_saving_pct"
 
 OUTPUT (JSON):
 {{
