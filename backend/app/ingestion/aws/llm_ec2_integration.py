@@ -295,6 +295,7 @@ def generate_ec2_prompt(instance_data: Dict[str, Any], monthly_forecast: float, 
     # Fetch pricing data from database
     schema_name = instance_data.get('schema_name', '')
 
+    alternative_pricing = []
     pricing_context = ""
     has_pricing = False
     estimated_hours = 0  # Initialize
@@ -302,78 +303,56 @@ def generate_ec2_prompt(instance_data: Dict[str, Any], monthly_forecast: float, 
 
     if schema_name and instance_type and instance_type != 'Unknown':
         try:
-            # Get current instance type pricing
-            current_pricing = get_ec2_current_pricing(schema_name, instance_type, region)
-
-            # Get alternative instance type pricing (reduced from 10 to 5 to avoid rate limits)
-            alternative_pricing = get_ec2_alternative_pricing(schema_name, instance_type, region, max_results=5)
+            # Only fetch DIVERSE alternative instance types (4 total: diverse families)
+            alternative_pricing = get_ec2_alternative_pricing(schema_name, instance_type, region, max_results=4)
 
             # Debug: Print fetched pricing
             print(f"\n{'='*60}")
             print(f"PRICING DEBUG - AWS EC2: {instance_type} in {region}")
             print(f"{'='*60}")
-            if current_pricing:
-                has_pricing = True
-                print(f"CURRENT INSTANCE PRICING:")
-                print(f"  Instance Type: {current_pricing.get('instance_type')}")
-                print(f"  Hourly: {current_pricing.get('price_per_hour')}")
-                print(f"  Monthly: {current_pricing.get('monthly_cost')}")
-                print(f"  Currency: {current_pricing.get('currency', 'N/A')}")
 
-                if alternative_pricing:
-                    print(f"\nALTERNATIVE INSTANCE TYPES (Top 5):")
-                    for idx, alt in enumerate(alternative_pricing[:5], 1):
-                        savings = current_pricing['monthly_cost'] - alt['monthly_cost']
-                        savings_pct = (savings / current_pricing['monthly_cost']) * 100 if current_pricing['monthly_cost'] > 0 else 0
-                        print(f"  {idx}. {alt['instance_type']}: {alt['price_per_hour']}/hr ({alt['monthly_cost']}/mo) - Save {savings_pct:.1f}%")
-                else:
-                    print(f"\nALTERNATIVE INSTANCE TYPES: Not found in database")
-            else:
-                print(f"CURRENT INSTANCE PRICING: Not found in database")
-                print(f"Using fallback pricing estimates")
-
-                # Fallback pricing when database pricing not available
-                estimated_hourly = _estimate_ec2_hourly_cost(instance_type)
-                has_pricing = True
-                current_pricing = {
-                    'instance_type': instance_type,
-                    'price_per_hour': estimated_hourly,
-                    'monthly_cost': estimated_hourly * 730,
-                    'currency': 'USD',
-                    'vcpu': '2',
-                    'memory': '4 GiB',
-                    'network_performance': 'Moderate'
-                }
-
-                # Estimate alternatives
-                alternative_pricing = [
-                    {'instance_type': f'{instance_type.split(".")[0]}.small', 'price_per_hour': estimated_hourly * 0.5, 'monthly_cost': estimated_hourly * 0.5 * 730, 'vcpu': '1', 'memory': '2 GiB'},
-                    {'instance_type': f'{instance_type.split(".")[0]}.medium', 'price_per_hour': estimated_hourly * 0.75, 'monthly_cost': estimated_hourly * 0.75 * 730, 'vcpu': '2', 'memory': '4 GiB'},
-                    {'instance_type': f'{instance_type.split(".")[0]}.large', 'price_per_hour': estimated_hourly * 1.5, 'monthly_cost': estimated_hourly * 1.5 * 730, 'vcpu': '4', 'memory': '8 GiB'}
-                ]
-
-                print(f"  Estimated hourly: {estimated_hourly:.4f} USD")
-                print(f"  Estimated monthly: {current_pricing['monthly_cost']:.2f} USD")
-                print(f"  (Fallback estimates - actual pricing unavailable)")
-
-            print(f"{'='*60}\n")
-
-            # Calculate estimated usage hours for clearer alternative cost calculations
-            if current_pricing and current_pricing.get('price_per_hour', 0) > 0:
-                current_hourly_rate = current_pricing['price_per_hour']
-                estimated_hours_total = billed_cost / current_hourly_rate
-                # Convert to MONTHLY hours (not total period hours)
-                estimated_hours = (estimated_hours_total / duration_days) * 30.4375
-                print(f"Estimated usage hours: {estimated_hours_total:.2f} hours total over {duration_days} days")
-                print(f"  = {estimated_hours_total / duration_days:.2f} hours/day")
-                print(f"  = {estimated_hours:.2f} hours/month (for cost calculations)")
-                print(f"Calculated from: ${billed_cost:.4f} / ${current_hourly_rate:.4f}/hr")
+            # Calculate implied hourly rate to estimate usage hours
+            if billed_cost > 0 and duration_days > 0:
+                estimated_market_rate = _estimate_ec2_hourly_cost(instance_type)
+                if estimated_market_rate > 0:
+                    estimated_hours_total = billed_cost / estimated_market_rate
+                    hours_per_day = estimated_hours_total / duration_days
+                    estimated_hours = hours_per_day * 30.4375  # Monthly hours
+                    current_hourly_rate = estimated_market_rate
+                    has_pricing = True
+                    print(f"CURRENT: {instance_type}")
+                    print(f"  Estimated rate: {estimated_market_rate:.4f}/hr")
+                    print(f"  Usage: {estimated_hours:.2f}hrs/mo (from {billed_cost:.4f} / {estimated_market_rate:.4f})")
             else:
                 estimated_hours = 0
                 current_hourly_rate = 0
 
+            if alternative_pricing and len(alternative_pricing) > 0:
+                print(f"\nDIVERSE INSTANCE FAMILIES:")
+                for idx, alt in enumerate(alternative_pricing, 1):
+                    print(f"  {idx}. {alt['instance_type']} ({alt['vcpu']}vCPU, {alt['memory']}): {alt['price_per_hour']:.4f}/hr")
+                has_pricing = True
+            else:
+                print(f"\nALTERNATIVE INSTANCES: Not found in database")
+                print(f"Using fallback pricing estimates")
+
+                # Fallback: Diverse instance families
+                estimated_base = estimated_market_rate if estimated_market_rate > 0 else 0.05
+                alternative_pricing = [
+                    {'instance_type': 't3.medium (General Purpose/Burstable)', 'price_per_hour': estimated_base * 0.4, 'vcpu': '2', 'memory': '4 GiB'},
+                    {'instance_type': 'm5.large (General Purpose)', 'price_per_hour': estimated_base * 0.8, 'vcpu': '2', 'memory': '8 GiB'},
+                    {'instance_type': 'c5.large (Compute Optimized)', 'price_per_hour': estimated_base * 0.9, 'vcpu': '2', 'memory': '4 GiB'},
+                    {'instance_type': 'r5.large (Memory Optimized)', 'price_per_hour': estimated_base * 1.2, 'vcpu': '2', 'memory': '16 GiB'},
+                ]
+                has_pricing = True
+
+                for alt in alternative_pricing:
+                    print(f"  {alt['instance_type']}: {alt['price_per_hour']:.4f}/hr (estimated)")
+
+            print(f"{'='*60}\n")
+
             # Format pricing for LLM
-            pricing_context = "\n\n" + format_ec2_pricing_for_llm(current_pricing, alternative_pricing) + "\n"
+            pricing_context = format_ec2_pricing_for_llm(alternative_pricing)
         except Exception as e:
             LOG.warning(f"⚠️ Error fetching EC2 pricing data: {e}")
             import traceback
@@ -386,33 +365,35 @@ def generate_ec2_prompt(instance_data: Dict[str, Any], monthly_forecast: float, 
             # Calculate estimated hours from fallback pricing
             if current_hourly_rate > 0:
                 estimated_hours_total = billed_cost / current_hourly_rate
-                # Convert to MONTHLY hours (not total period hours)
                 estimated_hours = (estimated_hours_total / duration_days) * 30.4375
-            pricing_context = f"\n\nPRICING DATA (ESTIMATED - Database unavailable):\nCurrent instance: {instance_type}\nEstimated cost: {estimated_hourly:.4f} USD/hour (~{estimated_hourly * 730:.2f} USD/month)\n"
+
+            # Fallback alternatives with diverse families
+            alternative_pricing = [
+                {'instance_type': 't3.medium', 'price_per_hour': estimated_hourly * 0.4, 'vcpu': '2', 'memory': '4 GiB'},
+                {'instance_type': 'm5.large', 'price_per_hour': estimated_hourly * 0.8, 'vcpu': '2', 'memory': '8 GiB'},
+            ]
+            pricing_context = format_ec2_pricing_for_llm(alternative_pricing)
     else:
-        pricing_context = "\n\nPRICING DATA: Not available (schema or instance type not provided)\n"
+        pricing_context = "EC2 ALTERNATIVES: Not available (schema or instance type not provided)"
 
     # Check if we have metrics available
     has_metrics = (cpu_avg > 0 or cpu_max > 0 or network_in_avg > 0 or
                    network_out_avg > 0 or disk_read_avg > 0 or disk_write_avg > 0)
 
-    # Build metrics list for base_of_recommendations (with units and quotes)
-    metrics_list = [
-        f'"CPU Utilization: Avg={cpu_avg:.1f}%, Max={cpu_max:.1f}%"',
-        f'"Network In: Avg={network_in_avg:.1f}GB, Max={network_in_max:.1f}GB"',
-        f'"Network Out: Avg={network_out_avg:.1f}GB, Max={network_out_max:.1f}GB"',
-        f'"Disk Read Ops: Avg={disk_read_avg:.1f}ops/sec, Max={disk_read_max:.1f}ops/sec"',
-        f'"Disk Write Ops: Avg={disk_write_avg:.1f}ops/sec, Max={disk_write_max:.1f}ops/sec"'
-    ]
-    metrics_list_str = '[' + ', '.join(metrics_list) + ']'
-
     # Guard clause for missing data
     if not has_pricing or not has_metrics or instance_type == "Unknown" or instance_type == "None":
-        return f"""AWS EC2 {instance_id} | {instance_type} | {duration_days}d | ${billed_cost:.2f}
+        return f"""AWS EC2 {instance_id} | {instance_type} | {duration_days}d | {billed_cost:.2f}
 ISSUE: {'No pricing' if not has_pricing else 'No metrics' if not has_metrics else 'Unknown type'}
-OUTPUT: {{"recommendations": {{"effective_recommendation": {{"text": "Cannot recommend", "explanation": "Insufficient data", "saving_pct": 0}}, "additional_recommendation": [], "base_of_recommendations": {metrics_list_str}}}, "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}}, "anomalies": [], "contract_deal": {{"assessment": "unknown", "for_sku": "{instance_type}", "reason": "Insufficient data", "monthly_saving_pct": 0, "annual_saving_pct": 0}}}}"""
+OUTPUT: {{"recommendations": {{"effective_recommendation": {{"text": "Cannot recommend", "explanation": "Insufficient data", "saving_pct": 0}}, "additional_recommendation": [], "base_of_recommendations": []}}, "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}}, "anomalies": [], "contract_deal": {{"assessment": "unknown", "for_sku": "{instance_type}", "reason": "Insufficient data", "monthly_saving_pct": 0, "annual_saving_pct": 0}}}}"""
 
-    prompt = f"""AWS EC2 {instance_id} | {instance_type} | {region} | {duration_days}d | ${monthly_forecast:.2f}/mo
+    # Prepare full resource data for LLM to analyze
+    resource_data_str = f"""RESOURCE: {instance_type} in {region}
+PERIOD: {duration_days} days
+BILLED_COST: {billed_cost:.4f}
+MONTHLY_FORECAST: {monthly_forecast:.2f}
+ANNUAL_FORECAST: {annual_forecast:.2f}
+ESTIMATED_USAGE: {estimated_hours:.2f} hours/month
+CURRENT_RATE: {current_hourly_rate:.4f}/hour
 
 METRICS:
 - CPU: Avg={cpu_avg:.2f}%, Max={cpu_max:.2f}%, MaxDate={cpu_max_date}
@@ -421,47 +402,39 @@ METRICS:
 - Disk Read: Avg={disk_read_avg:.2f}ops/sec, Max={disk_read_max:.2f}ops/sec, MaxDate={disk_read_max_date}
 - Disk Write: Avg={disk_write_avg:.2f}ops/sec, Max={disk_write_max:.2f}ops/sec, MaxDate={disk_write_max_date}
 
-PRICING:
+ALTERNATIVE_INSTANCES:
 {pricing_context}
+"""
 
-USAGE: {estimated_hours:.2f}hrs @ ${current_hourly_rate:.4f}/hr
+    prompt = f"""Analyze this AWS EC2 instance and provide cost optimization recommendations.
 
-RULES:
-1. EXPLANATION STRUCTURE (2 parts):
-   Part A - Metrics Analysis (WHY): Analyze metrics first. Explain theoretically WHY this recommendation makes sense based on resource utilization patterns.
-   Part B - Cost Calculation (MATH): Then show calculations with actual instance type names.
-   Example: "Instance {instance_type} shows low CPU (Avg=2%, Max=5%) and network usage, indicating over-provisioning. Switching to t3.medium at $0.0416/hr × {estimated_hours:.2f}hrs/mo = $X/mo vs current {instance_type} at ${monthly_forecast:.2f}/mo saves $Y (Z%)"
+{resource_data_str}
 
-2. Use ACTUAL INSTANCE TYPE NAMES in explanations:
-   - Always mention "{instance_type}" by name, not "current"
-   - Mention alternative instance type by name (e.g., "t3.medium"), not "alternative"
-   - Format: "{instance_type} → Alternative_Instance_Type"
-
-3. CRITICAL: Only recommend if savings $ > 0. If savings $ ≤ 0, DO NOT recommend (skip it).
-
-4. Each recommendation MUST be DIFFERENT ACTION CATEGORY:
-   - Instance type resize, Reserved Instance/Savings Plan, spot instance, usage schedule, optimization (EBS, network)
-   - NOT three different instance types
-
-5. contract_deal MUST have theoretical reasoning:
-   - Analyze usage pattern ({estimated_hours:.2f}hrs/mo vs 730hrs/mo)
-   - If usage is consistent and high (>500hrs/mo), RI/Savings Plan is good
-   - If usage is low/sporadic (<200hrs/mo), RI/Savings Plan is bad
-   - Show: "assessment", "for_sku", "reason" (usage-based), "monthly_saving_pct", "annual_saving_pct"
+INSTRUCTIONS:
+1. Analyze all resource data above (metrics, usage patterns, costs)
+2. Determine what recommendations are appropriate based on the data
+3. For each recommendation:
+   - First explain WHY (theoretical analysis of metrics and usage patterns)
+   - Then show calculations (mathematical proof with actual instance type names and numbers)
+4. Use actual instance type names (e.g., "{instance_type}", not "current")
+5. Only recommend if it saves money (positive savings)
+6. Each recommendation must be a DIFFERENT type of action (instance type resize, Reserved Instance/Savings Plan, spot instance, usage schedule, optimization - NOT multiple instance type resizes)
+7. For base_of_recommendations: select the metrics YOU used to make your decision
+8. For contract_deal: analyze if RI/Savings Plan makes sense for THIS usage pattern (consistent high usage >500hrs/mo = good, low/sporadic <200hrs/mo = bad)
 
 OUTPUT (JSON):
 {{
   "recommendations": {{
-    "effective_recommendation": {{"text": "Action", "explanation": "Metrics + cost calc", "saving_pct": <num>}},
+    "effective_recommendation": {{"text": "Action", "explanation": "WHY (metrics analysis) + MATH (calculations)", "saving_pct": <num>}},
     "additional_recommendation": [
-      {{"text": "Unique type", "explanation": "Metrics + cost calc", "saving_pct": <num>}},
-      {{"text": "Another unique type", "explanation": "Metrics + cost calc", "saving_pct": <num>}}
+      {{"text": "Different action type", "explanation": "WHY + MATH", "saving_pct": <num>}},
+      {{"text": "Another different action type", "explanation": "WHY + MATH", "saving_pct": <num>}}
     ],
-    "base_of_recommendations": {metrics_list_str}
+    "base_of_recommendations": ["metric1", "metric2"]
   }},
   "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}},
   "anomalies": [{{"metric_name": "Name", "timestamp": "MaxDate", "value": <num>, "reason_short": "Why unusual"}}],
-  "contract_deal": {{"assessment": "good|bad|unknown", "for_sku": "{instance_type}", "reason": "RI/savings plan vs on-demand for {instance_type}", "monthly_saving_pct": <num>, "annual_saving_pct": <num>}}
+  "contract_deal": {{"assessment": "good|bad|unknown", "for_sku": "{instance_type}", "reason": "Theoretical analysis of usage pattern", "monthly_saving_pct": <num>, "annual_saving_pct": <num>}}
 }}"""
 
     return prompt
