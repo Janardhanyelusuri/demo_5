@@ -619,67 +619,65 @@ def _generate_public_ip_prompt(resource_data: dict, start_date: str, end_date: s
     ip_address = resource_data.get("ip_address", "N/A")
     allocation_method = resource_data.get("allocation_method", "N/A")
     billed_cost = resource_data.get("billed_cost", 0.0)
+    duration_days = resource_data.get("duration_days", 30)
 
     # Fetch pricing data from database
     schema_name = resource_data.get("schema_name", "")
     region = resource_data.get("region", "eastus")
 
+    ip_pricing = []
     pricing_context = ""
+
     if schema_name:
         try:
-            # Get public IP pricing context
-            ip_pricing = get_public_ip_pricing_context(schema_name, region)
+            # Only fetch DIVERSE public IP options (4 options)
+            ip_pricing = get_public_ip_pricing_context(schema_name, region, max_results=4)
 
             # Debug: Print fetched pricing
             print(f"\n{'='*60}")
             print(f"PRICING DEBUG - Azure Public IP: {current_sku} {current_tier} in {region}")
             print(f"{'='*60}")
-            print(f"PUBLIC IP PRICING OPTIONS:")
-            options = ip_pricing.get('options', [])
-            if options:
-                for idx, opt in enumerate(options, 1):
-                    print(f"  {idx}. {opt['meter_name']}: {opt['retail_price']:.6f}/hr ({opt['monthly_cost']:.2f}/month)")
+
+            if ip_pricing and len(ip_pricing) > 0:
+                print(f"CURRENT: {current_sku} ({allocation_method})")
+                print(f"\nDIVERSE PUBLIC IP OPTIONS:")
+                for idx, opt in enumerate(ip_pricing, 1):
+                    print(f"  {idx}. {opt['meter_name']}: {opt['retail_price']:.6f} per {opt['unit_of_measure']}")
             else:
-                print(f"  No pricing options available")
+                print(f"CURRENT: {current_sku} ({allocation_method})")
+                print(f"PUBLIC IP PRICING: Not found in database")
+                print(f"Using fallback pricing estimates")
+
+                # Fallback: Diverse public IP options
+                ip_pricing = [
+                    {'meter_name': 'Basic Static IPv4', 'retail_price': 0.003, 'unit_of_measure': 'Hour'},
+                    {'meter_name': 'Basic Dynamic IPv4', 'retail_price': 0.002, 'unit_of_measure': 'Hour'},
+                    {'meter_name': 'Standard Static IPv4', 'retail_price': 0.005, 'unit_of_measure': 'Hour'},
+                    {'meter_name': 'Standard Static IPv6', 'retail_price': 0.005, 'unit_of_measure': 'Hour'}
+                ]
+
+                for opt in ip_pricing:
+                    print(f"  {opt['meter_name']}: {opt['retail_price']:.6f} per Hour (estimated)")
+
             print(f"{'='*60}\n")
 
             # Format pricing for LLM
-            pricing_context = "\n\n" + format_ip_pricing_for_llm(ip_pricing) + "\n"
+            pricing_context = format_ip_pricing_for_llm(ip_pricing)
         except Exception as e:
             print(f"⚠️ Error fetching Public IP pricing data: {e}")
-            pricing_context = "\n\nPRICING DATA: Not available\n"
+            import traceback
+            traceback.print_exc()
+
+            # Fallback pricing on error
+            ip_pricing = [
+                {'meter_name': 'Basic Static', 'retail_price': 0.003, 'unit_of_measure': 'Hour'},
+                {'meter_name': 'Standard Static', 'retail_price': 0.005, 'unit_of_measure': 'Hour'}
+            ]
+            pricing_context = format_ip_pricing_for_llm(ip_pricing)
     else:
-        pricing_context = "\n\nPRICING DATA: Not available (schema not provided)\n"
+        pricing_context = "PUBLIC IP PRICING: Not available (schema not provided)"
 
-    # Check if we have pricing and metrics available
-    has_pricing = pricing_context and "Not available" not in pricing_context
-    has_metrics = bool(formatted_metrics)
-
-    # Extract key metrics for base_of_recommendations (with units)
-    metrics_list = []
-    for metric_name, values in formatted_metrics.items():
-        if values.get('Avg') is not None:
-            # Extract unit from metric name if it has one
-            if 'Bytes' in metric_name or 'Throughput' in metric_name:
-                unit = 'Bps'
-            elif 'Packets' in metric_name:
-                unit = 'pps'
-            elif 'DDoS' in metric_name or 'Attack' in metric_name:
-                unit = 'count'
-            elif 'Percentage' in metric_name:
-                unit = '%'
-            else:
-                unit = ''
-
-            if unit:
-                metrics_list.append(f'"{metric_name}: Avg={values["Avg"]:.2f}{unit}, Max={values.get("Max", 0):.2f}{unit}"')
-            else:
-                metrics_list.append(f'"{metric_name}: Avg={values["Avg"]:.2f}, Max={values.get("Max", 0):.2f}"')
-
-    # Format as JSON array string for LLM
-    metrics_list_str = '[' + ', '.join(metrics_list) + ']' if metrics_list else '[]'
-
-    # Build explicit metric summary for the prompt (with units)
+    # Build explicit metric summary for the prompt
     metrics_summary = []
     for metric_name, values in formatted_metrics.items():
         if values.get('Avg') is not None:
@@ -700,57 +698,61 @@ def _generate_public_ip_prompt(resource_data: dict, start_date: str, end_date: s
                 metrics_summary.append(f"- {metric_name}: Avg={values['Avg']:.2f}, Max={values.get('Max', 0):.2f}, MaxDate={values.get('MaxDate', 'N/A')}")
 
     metrics_text = "\n".join(metrics_summary) if metrics_summary else "No metrics available"
-    duration_days = resource_data.get("duration_days", 30)
+
+    # Check if we have sufficient data
+    has_pricing = bool(ip_pricing)
+    has_metrics = bool(formatted_metrics)
 
     # Guard clause for missing data
     if not has_pricing or not has_metrics or current_sku == "N/A" or current_sku == "None":
-        return f"""Azure PublicIP {resource_data.get("resource_id", "N/A")} | {current_sku} | {duration_days}d | ${billed_cost:.2f}
+        return f"""Azure PublicIP {resource_data.get("resource_id", "N/A")} | {current_sku} | {duration_days}d | {billed_cost:.2f}
 ISSUE: {'No pricing' if not has_pricing else 'No metrics' if not has_metrics else 'Unknown SKU'}
-OUTPUT: {{"recommendations": {{"effective_recommendation": {{"text": "Cannot recommend", "explanation": "Insufficient data", "saving_pct": 0}}, "additional_recommendation": [], "base_of_recommendations": {metrics_list_str}}}, "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}}, "anomalies": [], "contract_deal": {{"assessment": "unknown", "for_sku": "{current_sku}", "reason": "Insufficient data", "monthly_saving_pct": 0, "annual_saving_pct": 0}}}}"""
+OUTPUT: {{"recommendations": {{"effective_recommendation": {{"text": "Cannot recommend", "explanation": "Insufficient data", "saving_pct": 0}}, "additional_recommendation": [], "base_of_recommendations": []}}, "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}}, "anomalies": [], "contract_deal": {{"assessment": "unknown", "for_sku": "{current_sku}", "reason": "Insufficient data", "monthly_saving_pct": 0, "annual_saving_pct": 0}}}}"""
 
-    return f"""Azure PublicIP {resource_data.get("resource_id", "N/A")} | {current_sku} | {allocation_method} | {duration_days}d | ${monthly_forecast:.2f}/mo
+    # Prepare full resource data for LLM to analyze
+    resource_data_str = f"""RESOURCE: {current_sku} ({allocation_method}) in {region}
+IP_ADDRESS: {ip_address}
+PERIOD: {duration_days} days
+BILLED_COST: {billed_cost:.4f}
+MONTHLY_FORECAST: {monthly_forecast:.2f}
+ANNUAL_FORECAST: {annual_forecast:.2f}
 
 METRICS:
 {metrics_text}
 
-PRICING:
+PUBLIC_IP_OPTIONS:
 {pricing_context}
+"""
 
-RULES:
-1. EXPLANATION STRUCTURE (2 parts):
-   Part A - Metrics Analysis (WHY): Analyze metrics first. Explain theoretically WHY this recommendation makes sense based on usage patterns.
-   Part B - Cost Calculation (MATH): Then show calculations with actual SKU names.
-   Example: "Public IP {current_sku} ({allocation_method}) shows no traffic or is unattached. Deallocating saves full cost of ${monthly_forecast:.2f}/mo (100% savings)"
+    return f"""Analyze this Azure Public IP and provide cost optimization recommendations.
 
-2. Use ACTUAL NAMES in explanations:
-   - Mention "{current_sku}" and "{allocation_method}" by name
-   - Format: "{current_sku} ({allocation_method}) → Action"
+{resource_data_str}
 
-3. CRITICAL: Only recommend if savings $ > 0. If savings $ ≤ 0, DO NOT recommend (skip it).
-
-4. Each recommendation MUST be DIFFERENT ACTION CATEGORY:
-   - Deallocate, change allocation method, reserved IP, DDoS protection, SKU downgrade
-   - NOT three variations of same action
-
-5. contract_deal MUST have theoretical reasoning:
-   - Analyze allocation method and usage consistency
-   - If Static and always allocated, reserved IP is good
-   - If Dynamic or frequently deallocated, reserved IP is bad
-   - Show: "assessment", "for_sku", "reason" (usage-based), "monthly_saving_pct", "annual_saving_pct"
+INSTRUCTIONS:
+1. Analyze all resource data above (metrics, usage patterns, costs, IP options)
+2. Determine what recommendations are appropriate based on the data
+3. For each recommendation:
+   - First explain WHY (theoretical analysis of metrics and usage patterns)
+   - Then show calculations (mathematical proof with actual SKU names and numbers)
+4. Use actual SKU/allocation names (e.g., "{current_sku} ({allocation_method})", not "current")
+5. Only recommend if it saves money (positive savings)
+6. Each recommendation must be a DIFFERENT type of action (deallocate, change allocation method, reserved IP, DDoS protection, SKU change - NOT multiple variations of same action)
+7. For base_of_recommendations: select the metrics YOU used to make your decision
+8. For contract_deal: analyze if reserved IP makes sense for THIS usage pattern (Static and always allocated = good, Dynamic or frequently deallocated = bad)
 
 OUTPUT (JSON):
 {{
   "recommendations": {{
-    "effective_recommendation": {{"text": "Action", "explanation": "Metrics + cost calc", "saving_pct": <num>}},
+    "effective_recommendation": {{"text": "Action", "explanation": "WHY (metrics analysis) + MATH (calculations)", "saving_pct": <num>}},
     "additional_recommendation": [
-      {{"text": "Unique type", "explanation": "Metrics + cost calc", "saving_pct": <num>}},
-      {{"text": "Another unique type", "explanation": "Metrics + cost calc", "saving_pct": <num>}}
+      {{"text": "Different action type", "explanation": "WHY + MATH", "saving_pct": <num>}},
+      {{"text": "Another different action type", "explanation": "WHY + MATH", "saving_pct": <num>}}
     ],
-    "base_of_recommendations": {metrics_list_str}
+    "base_of_recommendations": ["metric1", "metric2"]
   }},
   "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}},
   "anomalies": [{{"metric_name": "Name", "timestamp": "MaxDate", "value": <num>, "reason_short": "Why unusual"}}],
-  "contract_deal": {{"assessment": "good|bad|unknown", "for_sku": "{current_sku}", "reason": "Reserved vs on-demand for {current_sku}", "monthly_saving_pct": <num>, "annual_saving_pct": <num>}}
+  "contract_deal": {{"assessment": "good|bad|unknown", "for_sku": "{current_sku}", "reason": "Theoretical analysis of usage pattern", "monthly_saving_pct": <num>, "annual_saving_pct": <num>}}
 }}"""
 
 

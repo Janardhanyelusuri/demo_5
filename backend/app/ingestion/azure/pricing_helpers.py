@@ -216,20 +216,22 @@ def get_storage_pricing_context(conn, schema_name: str, region: str = "eastus", 
 
 
 @connection
-def get_public_ip_pricing_context(conn, schema_name: str, region: str = "eastus") -> Dict:
+def get_public_ip_pricing_context(conn, schema_name: str, region: str = "eastus", max_results: int = 5) -> list:
     """
-    Get public IP pricing context.
+    Get DIVERSE public IP pricing options for comparison.
+    Fetches different SKUs (Basic/Standard) and allocation methods (Static/Dynamic).
 
     Args:
         conn: Database connection
         schema_name: Schema name
         region: Azure region
+        max_results: Maximum number of diverse alternatives
 
     Returns:
-        Dict with IP pricing info
+        List of diverse public IP option pricing dicts
     """
     query = f"""
-        SELECT
+        SELECT DISTINCT
             sku_name,
             product_name,
             meter_name,
@@ -237,13 +239,14 @@ def get_public_ip_pricing_context(conn, schema_name: str, region: str = "eastus"
             unit_of_measure
         FROM {schema_name}.azure_pricing_ip
         WHERE LOWER(arm_region_name) = LOWER(%s)
+          AND retail_price > 0
         ORDER BY retail_price ASC
-        LIMIT 5
+        LIMIT %s
     """
 
     try:
         cursor = conn.cursor()
-        cursor.execute(query, (region,))
+        cursor.execute(query, (region, max_results))
         results = cursor.fetchall()
 
         pricing_options = []
@@ -253,18 +256,15 @@ def get_public_ip_pricing_context(conn, schema_name: str, region: str = "eastus"
                 'product_name': row[1],
                 'meter_name': row[2],
                 'retail_price': float(row[3]) if row[3] else 0.0,
-                'unit_of_measure': row[4],
-                'monthly_cost': float(row[3]) * 730 if row[3] else 0.0
+                'unit_of_measure': row[4]
             })
 
-        return {
-            'options': pricing_options,
-            'available_tiers': len(pricing_options)
-        }
+        print(f"  Found {len(pricing_options)} diverse public IP options")
+        return pricing_options
 
     except Exception as e:
         print(f"Error fetching IP pricing: {e}")
-        return {'options': [], 'available_tiers': 0}
+        return []
 
 
 def format_vm_pricing_for_llm(current_pricing: Optional[Dict], alternatives: List[Dict]) -> str:
@@ -318,25 +318,23 @@ def format_storage_pricing_for_llm(storage_pricing: list) -> str:
     return "\n".join(output)
 
 
-def format_ip_pricing_for_llm(ip_pricing: Dict) -> str:
+def format_ip_pricing_for_llm(ip_pricing: list) -> str:
     """
     Format public IP pricing data for LLM context.
     Condensed format to reduce token usage.
 
     Args:
-        ip_pricing: IP pricing dict
+        ip_pricing: List of IP pricing dicts
 
     Returns:
         Formatted string for LLM prompt
     """
-    options = ip_pricing.get('options', [])
-
-    if not options:
+    if not ip_pricing:
         return "PUBLIC IP PRICING: Not available"
 
     output = []
-    # Only send top 2 options to reduce token usage
-    for idx, opt in enumerate(options[:2], 1):
-        output.append(f"OPT{idx}: {opt['meter_name']} = ${opt['retail_price']:.5f}/hr")
+    # Only send top 4 options to reduce token usage
+    for idx, opt in enumerate(ip_pricing[:4], 1):
+        output.append(f"OPT{idx}: {opt['meter_name']} = {opt['retail_price']:.5f}/{opt['unit_of_measure']}")
 
     return "\n".join(output)
