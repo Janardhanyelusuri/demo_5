@@ -378,6 +378,8 @@ def _generate_compute_prompt(resource_data: dict, start_date: str, end_date: str
     pricing_context = ""
     estimated_hours = 0  # Initialize
     current_hourly_rate = 0  # Initialize
+    current_pricing = None  # Initialize
+    alternative_pricing = None  # Initialize
 
     if schema_name and current_sku and current_sku != "N/A":
         try:
