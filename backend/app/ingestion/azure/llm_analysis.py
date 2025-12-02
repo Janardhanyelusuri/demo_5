@@ -279,16 +279,27 @@ PRICING:
 {pricing_context}
 
 RULES:
-1. Cite metrics with units (e.g., "Capacity Avg=50.2GB, Max=120.5GB")
-2. Show ALL calculations in explanation:
-   - Alt monthly cost = tier_price_per_GB × capacity_GB
-   - Savings $ = ${monthly_forecast:.2f} - alt_monthly_cost
-   - savings_pct = (savings $ / ${monthly_forecast:.2f}) × 100
-   - Example: "Current: ${monthly_forecast:.2f}/mo, Alt: $0.05/GB × 100GB = $5/mo, Savings: ${monthly_forecast:.2f} - $5 = $X (Y%)"
-3. CRITICAL: Only recommend if savings $ > 0. If savings $ ≤ 0, DO NOT recommend (costs more or same). Skip that recommendation.
-4. Each recommendation must be DIFFERENT ACTION CATEGORY. Do NOT give same action 3 times (e.g., NOT three tier changes). Consider: tier changes, lifecycle policies, replication configs, versioning/cleanup, reserved capacity
-5. Anomalies: metric name, timestamp, value, reason
-6. contract_deal: reserved capacity vs on-demand for {current_sku} {current_tier} only
+1. EXPLANATION STRUCTURE (2 parts):
+   Part A - Metrics Analysis (WHY): Analyze metrics first. Explain theoretically WHY this recommendation makes sense based on usage patterns.
+   Part B - Cost Calculation (MATH): Then show calculations with actual tier/SKU names.
+   Example: "Storage account {current_sku} {current_tier} has low transaction count and capacity growing slowly. Switching to Cool tier at $0.01/GB × 100GB = $1/mo vs current Hot tier at ${monthly_forecast:.2f}/mo saves $X (Y%)"
+
+2. Use ACTUAL NAMES in explanations:
+   - Mention "{current_sku} {current_tier}" by name
+   - Mention alternative tier by name (e.g., "Cool tier", "Archive tier")
+   - Format: "{current_sku} {current_tier} → Alternative_Tier"
+
+3. CRITICAL: Only recommend if savings $ > 0. If savings $ ≤ 0, DO NOT recommend (skip it).
+
+4. Each recommendation MUST be DIFFERENT ACTION CATEGORY:
+   - Tier change, lifecycle policy, replication change, versioning cleanup, reserved capacity
+   - NOT three different tiers
+
+5. contract_deal MUST have theoretical reasoning:
+   - Analyze data growth and access patterns
+   - If data is stable/growing and frequently accessed, reserved capacity is good
+   - If data is volatile or infrequently accessed, reserved capacity is bad
+   - Show: "assessment", "for_sku", "reason" (usage-based), "monthly_saving_pct", "annual_saving_pct"
 
 OUTPUT (JSON):
 {{
@@ -530,16 +541,27 @@ PRICING:
 USAGE: {estimated_hours:.2f}hrs @ ${current_hourly_rate:.4f}/hr
 
 RULES:
-1. Cite metrics with units (e.g., "CPU Avg=5.2%, Max=12.3%")
-2. Show ALL calculations in explanation:
-   - Alt monthly cost = alt_hourly_rate × {estimated_hours:.2f}hrs/month
-   - Savings $ = ${monthly_forecast:.2f} - alt_monthly_cost
-   - savings_pct = (savings $ / ${monthly_forecast:.2f}) × 100
-   - Example: "Current: ${monthly_forecast:.2f}/mo, Alt: $0.50/hr × {estimated_hours:.2f}hrs/mo = $X/mo, Savings: ${monthly_forecast:.2f} - $X = $Y (Z%)"
-3. CRITICAL: Only recommend if savings $ > 0. If savings $ ≤ 0, DO NOT recommend (costs more or same). Skip that recommendation.
-4. Each recommendation must be DIFFERENT ACTION CATEGORY. Do NOT give same action 3 times (e.g., NOT resize to 3 different SKUs). Consider: SKU changes, pricing model changes (reserved/spot), usage schedules, feature optimizations
-5. Anomalies: metric name, timestamp, value, reason
-6. contract_deal: reserved vs on-demand for {current_sku} only
+1. EXPLANATION STRUCTURE (2 parts):
+   Part A - Metrics Analysis (WHY): Analyze metrics first. Explain theoretically WHY this recommendation makes sense based on resource utilization patterns.
+   Part B - Cost Calculation (MATH): Then show calculations with actual SKU names.
+   Example: "The {current_sku} shows low CPU (Avg=2%, Max=5%) and memory usage, indicating over-provisioning. Switching to Standard_D2s_v3 at $0.096/hr × {estimated_hours:.2f}hrs/mo = $X/mo vs current {current_sku} at ${monthly_forecast:.2f}/mo saves $Y (Z%)"
+
+2. Use ACTUAL SKU NAMES in explanations:
+   - Always mention "{current_sku}" by name, not "current"
+   - Mention alternative SKU by name (e.g., "Standard_D2s_v3"), not "alternative"
+   - Format: "{current_sku} → Alternative_SKU_Name"
+
+3. CRITICAL: Only recommend if savings $ > 0. If savings $ ≤ 0, DO NOT recommend (skip it).
+
+4. Each recommendation MUST be DIFFERENT ACTION CATEGORY:
+   - SKU resize, reserved pricing, usage schedules, spot instances, feature optimization
+   - NOT three different SKU sizes
+
+5. contract_deal MUST have theoretical reasoning:
+   - Analyze usage pattern ({estimated_hours:.2f}hrs/mo vs 730hrs/mo)
+   - If usage is consistent and high, reserved pricing is good
+   - If usage is low/sporadic, reserved pricing is bad
+   - Show: "assessment", "for_sku", "reason" (usage-based), "monthly_saving_pct", "annual_saving_pct"
 
 OUTPUT (JSON):
 {{
@@ -768,15 +790,26 @@ PRICING:
 {pricing_context}
 
 RULES:
-1. Cite metrics with units
-2. Show ALL calculations in explanation:
-   - Savings $ = ${monthly_forecast:.2f} - alt_monthly_cost
-   - savings_pct = (savings $ / ${monthly_forecast:.2f}) × 100
-   - Example: "Current: ${monthly_forecast:.2f}/mo, Alt: $X/mo, Savings: ${monthly_forecast:.2f} - $X = $Y (Z%)"
-3. CRITICAL: Only recommend if savings $ > 0. If savings $ ≤ 0, DO NOT recommend (costs more or same). Skip that recommendation.
-4. Each recommendation must be DIFFERENT ACTION CATEGORY. Do NOT give same action 3 times. Consider: deallocation/allocation method, reserved pricing, DDoS protection, SKU changes
-5. Anomalies: metric name, timestamp, value, reason
-6. contract_deal: reserved IP vs on-demand IP for {current_sku} only
+1. EXPLANATION STRUCTURE (2 parts):
+   Part A - Metrics Analysis (WHY): Analyze metrics first. Explain theoretically WHY this recommendation makes sense based on usage patterns.
+   Part B - Cost Calculation (MATH): Then show calculations with actual SKU names.
+   Example: "Public IP {current_sku} ({allocation_method}) shows no traffic or is unattached. Deallocating saves full cost of ${monthly_forecast:.2f}/mo (100% savings)"
+
+2. Use ACTUAL NAMES in explanations:
+   - Mention "{current_sku}" and "{allocation_method}" by name
+   - Format: "{current_sku} ({allocation_method}) → Action"
+
+3. CRITICAL: Only recommend if savings $ > 0. If savings $ ≤ 0, DO NOT recommend (skip it).
+
+4. Each recommendation MUST be DIFFERENT ACTION CATEGORY:
+   - Deallocate, change allocation method, reserved IP, DDoS protection, SKU downgrade
+   - NOT three variations of same action
+
+5. contract_deal MUST have theoretical reasoning:
+   - Analyze allocation method and usage consistency
+   - If Static and always allocated, reserved IP is good
+   - If Dynamic or frequently deallocated, reserved IP is bad
+   - Show: "assessment", "for_sku", "reason" (usage-based), "monthly_saving_pct", "annual_saving_pct"
 
 OUTPUT (JSON):
 {{

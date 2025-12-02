@@ -369,16 +369,27 @@ PRICING:
 {pricing_context}
 
 RULES:
-1. Cite metrics with units (e.g., "Capacity Avg=50.2GB, Max=120.5GB")
-2. Show ALL calculations in explanation:
-   - Alt monthly cost = class_price_per_GB × capacity_GB
-   - Savings $ = ${monthly_forecast:.2f} - alt_monthly_cost
-   - savings_pct = (savings $ / ${monthly_forecast:.2f}) × 100
-   - Example: "Current: ${monthly_forecast:.2f}/mo, Alt: $0.05/GB × 100GB = $5/mo, Savings: ${monthly_forecast:.2f} - $5 = $X (Y%)"
-3. CRITICAL: Only recommend if savings $ > 0. If savings $ ≤ 0, DO NOT recommend (costs more or same). Skip that recommendation.
-4. Each recommendation must be DIFFERENT ACTION CATEGORY. Do NOT give same action 3 times (e.g., NOT three storage class changes). Consider: storage class changes, lifecycle policies, versioning configs, replication settings
-5. Anomalies: metric name, timestamp, value, reason
-6. contract_deal: reserved capacity vs on-demand for Standard class only
+1. EXPLANATION STRUCTURE (2 parts):
+   Part A - Metrics Analysis (WHY): Analyze metrics first. Explain theoretically WHY this recommendation makes sense based on access patterns and data characteristics.
+   Part B - Cost Calculation (MATH): Then show calculations with actual storage class names.
+   Example: "Bucket {bucket_name} in {region} shows low GET requests (Avg=10/day) and capacity growth is slow. Objects rarely accessed. Switching to S3 Glacier at $0.004/GB × 100GB = $0.40/mo vs current S3 Standard at ${monthly_forecast:.2f}/mo saves $X (Y%)"
+
+2. Use ACTUAL NAMES in explanations:
+   - Mention bucket name and current storage class by name
+   - Mention alternative storage class by name (e.g., "S3 Intelligent-Tiering", "S3 Glacier")
+   - Format: "{bucket_name} (Standard) → Storage_Class_Name"
+
+3. CRITICAL: Only recommend if savings $ > 0. If savings $ ≤ 0, DO NOT recommend (skip it).
+
+4. Each recommendation MUST be DIFFERENT ACTION CATEGORY:
+   - Storage class change, lifecycle policy, versioning cleanup, replication optimization, Intelligent-Tiering
+   - NOT three different storage classes
+
+5. contract_deal MUST have theoretical reasoning:
+   - Analyze data growth rate and access frequency
+   - If data is stable/growing and frequently accessed, reserved capacity is good
+   - If data is volatile or infrequently accessed, reserved capacity is bad
+   - Show: "assessment", "for_sku", "reason" (usage-based), "monthly_saving_pct", "annual_saving_pct"
 
 OUTPUT (JSON):
 {{
