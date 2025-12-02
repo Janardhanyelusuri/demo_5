@@ -278,7 +278,7 @@ INSTRUCTIONS:
 4. Use actual tier/SKU names (e.g., "{current_sku} {current_tier}", not "current")
 5. Only recommend if it saves money (positive savings)
 6. Each recommendation must be a DIFFERENT type of action (tier change, lifecycle policy, redundancy change, versioning cleanup, reserved capacity - NOT multiple tier changes)
-7. For base_of_recommendations: select the metrics YOU used to make your decision
+7. For base_of_recommendations: select the metrics YOU used to make your decision - MUST include metric name AND value (e.g., "Used Capacity: 150GB", "Transactions: 1000 ops/sec")
 8. For contract_deal: analyze if reserved capacity makes sense for THIS usage pattern (stable/growing data = good, volatile data = bad)
 
 OUTPUT (JSON):
@@ -289,7 +289,7 @@ OUTPUT (JSON):
       {{"text": "Different action type", "explanation": "WHY + MATH", "saving_pct": <num>}},
       {{"text": "Another different action type", "explanation": "WHY + MATH", "saving_pct": <num>}}
     ],
-    "base_of_recommendations": ["metric1", "metric2"]
+    "base_of_recommendations": ["metric_name: value with unit", "metric_name: value with unit"]
   }},
   "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}},
   "anomalies": [{{"metric_name": "Name", "timestamp": "MaxDate", "value": <num>, "reason_short": "Why unusual"}}],
@@ -488,7 +488,7 @@ INSTRUCTIONS:
 6. Each recommendation must be a DIFFERENT type of action:
    - Consider: SKU resize, reserved instances, usage schedules, spot instances, deallocate unused, optimization features
    - Pick the ones that make sense for THIS resource's specific data
-7. For base_of_recommendations: select the metrics YOU used to make your decision
+7. For base_of_recommendations: select the metrics YOU used to make your decision - MUST include metric name AND value (e.g., "CPU Percentage: 45.2%", "Memory Used: 2.5GB")
 8. For contract_deal: analyze if reserved pricing makes sense for THIS usage pattern
 
 OUTPUT FORMAT (JSON):
@@ -498,7 +498,7 @@ OUTPUT FORMAT (JSON):
     "additional_recommendation": [
       {{"text": "action description", "explanation": "theoretical WHY + calculation MATH", "saving_pct": number}}
     ],
-    "base_of_recommendations": ["metric1: value", "metric2: value"]
+    "base_of_recommendations": ["metric_name: value with unit", "metric_name: value with unit"]
   }},
   "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}},
   "anomalies": [{{"metric_name": "name", "timestamp": "date", "value": number, "reason_short": "why unusual"}}],
@@ -737,7 +737,7 @@ INSTRUCTIONS:
 4. Use actual SKU/allocation names (e.g., "{current_sku} ({allocation_method})", not "current")
 5. Only recommend if it saves money (positive savings)
 6. Each recommendation must be a DIFFERENT type of action (deallocate, change allocation method, reserved IP, DDoS protection, SKU change - NOT multiple variations of same action)
-7. For base_of_recommendations: select the metrics YOU used to make your decision
+7. For base_of_recommendations: select the metrics YOU used to make your decision - MUST include metric name AND value (e.g., "ByteCount: 1.5GB", "TCP Bytes Forwarded DDoS: 0.0GB")
 8. For contract_deal: analyze if reserved IP makes sense for THIS usage pattern (Static and always allocated = good, Dynamic or frequently deallocated = bad)
 
 OUTPUT (JSON):
@@ -748,7 +748,7 @@ OUTPUT (JSON):
       {{"text": "Different action type", "explanation": "WHY + MATH", "saving_pct": <num>}},
       {{"text": "Another different action type", "explanation": "WHY + MATH", "saving_pct": <num>}}
     ],
-    "base_of_recommendations": ["metric1", "metric2"]
+    "base_of_recommendations": ["metric_name: value with unit", "metric_name: value with unit"]
   }},
   "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}},
   "anomalies": [{{"metric_name": "Name", "timestamp": "MaxDate", "value": <num>, "reason_short": "Why unusual"}}],
