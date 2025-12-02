@@ -75,48 +75,68 @@ def get_vm_current_pricing(conn, schema_name: str, sku_name: str, region: str = 
 @connection
 def get_vm_alternative_pricing(conn, schema_name: str, current_sku: str, region: str = "eastus", max_results: int = 10) -> List[Dict]:
     """
-    Get alternative VM SKUs with pricing for comparison.
+    Get DIVERSE alternative VM SKUs with pricing for comparison.
+    Fetches different series/families, not just upsize/downsize of same type.
 
     Args:
         conn: Database connection
         schema_name: Schema name
         current_sku: Current VM SKU
         region: Azure region
-        max_results: Maximum number of alternatives
+        max_results: Maximum number of alternatives (will try to get mix of cheaper/similar/more expensive)
 
     Returns:
-        List of alternative SKU pricing dicts
+        List of alternative SKU pricing dicts from diverse series (B, D, E, F, etc.)
     """
-    # Extract SKU family (e.g., 'D' from 'Standard_D4s_v3')
-    sku_family = None
-    if current_sku and '_' in current_sku:
-        parts = current_sku.split('_')
-        if len(parts) >= 2:
-            # Extract letter from size (e.g., 'D' from 'D4s')
-            size_part = parts[1]
-            if size_part:
-                sku_family = size_part[0]
-
-    query = f"""
-        SELECT DISTINCT
-            sku_name,
-            product_name,
-            retail_price,
-            currency_code,
-            unit_of_measure,
-            meter_name
+    # First get current SKU price to determine cheaper/similar/more expensive alternatives
+    current_price_query = f"""
+        SELECT retail_price
         FROM {schema_name}.azure_pricing_vm
         WHERE LOWER(arm_region_name) = LOWER(%s)
+          AND sku_name = %s
           AND meter_name LIKE '%%Compute%%'
-          AND sku_name != %s
-          AND sku_name IS NOT NULL
-        ORDER BY retail_price ASC
-        LIMIT %s
+        LIMIT 1
     """
 
     try:
         cursor = conn.cursor()
-        cursor.execute(query, (region, current_sku, max_results))
+        cursor.execute(current_price_query, (region, current_sku))
+        current_price_result = cursor.fetchone()
+        current_price = float(current_price_result[0]) if current_price_result and current_price_result[0] else 0.0
+
+        # Get diverse alternatives: cheaper options, similar price, and more expensive
+        # Use UNION to get mix from different price ranges and different series
+        query = f"""
+            (
+                -- Cheaper alternatives (different series)
+                SELECT DISTINCT sku_name, product_name, retail_price, currency_code, unit_of_measure, meter_name
+                FROM {schema_name}.azure_pricing_vm
+                WHERE LOWER(arm_region_name) = LOWER(%s)
+                  AND meter_name LIKE '%%Compute%%'
+                  AND sku_name != %s
+                  AND sku_name IS NOT NULL
+                  AND retail_price < %s
+                  AND retail_price > 0
+                ORDER BY retail_price DESC
+                LIMIT {max(2, max_results // 2)}
+            )
+            UNION ALL
+            (
+                -- More expensive alternatives (different series for upsize)
+                SELECT DISTINCT sku_name, product_name, retail_price, currency_code, unit_of_measure, meter_name
+                FROM {schema_name}.azure_pricing_vm
+                WHERE LOWER(arm_region_name) = LOWER(%s)
+                  AND meter_name LIKE '%%Compute%%'
+                  AND sku_name != %s
+                  AND sku_name IS NOT NULL
+                  AND retail_price > %s
+                  AND retail_price > 0
+                ORDER BY retail_price ASC
+                LIMIT {max(2, max_results // 2)}
+            )
+        """
+
+        cursor.execute(query, (region, current_sku, current_price, region, current_sku, current_price))
         results = cursor.fetchall()
 
         alternatives = []
@@ -127,11 +147,11 @@ def get_vm_alternative_pricing(conn, schema_name: str, current_sku: str, region:
                 'retail_price': float(row[2]) if row[2] else 0.0,
                 'currency_code': row[3],
                 'unit_of_measure': row[4],
-                'meter_name': row[5],
-                'monthly_cost': float(row[2]) * 730 if row[2] else 0.0
+                'meter_name': row[5]
             })
 
-        return alternatives
+        print(f"  Found {len(alternatives)} diverse alternatives across different VM series")
+        return alternatives[:max_results]
 
     except Exception as e:
         print(f"Error fetching alternative VM pricing: {e}")

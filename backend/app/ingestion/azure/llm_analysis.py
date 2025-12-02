@@ -410,18 +410,18 @@ def _generate_compute_prompt(resource_data: dict, start_date: str, end_date: str
             alternative_pricing = get_vm_alternative_pricing(schema_name, current_sku, region, max_results=4)
 
             if alternative_pricing and len(alternative_pricing) > 0:
-                print(f"ALTERNATIVE SKUs (4 options - 2 smaller, 2 larger):")
+                print(f"ALTERNATIVE SKUs (diverse series/types):")
                 for idx, alt in enumerate(alternative_pricing[:4], 1):
                     print(f"  {idx}. {alt['sku_name']}: {alt.get('retail_price', alt.get('price_per_hour', 0)):.4f}/hr")
             else:
                 print(f"ALTERNATIVE SKUs: Not found in database, will use fallback estimates")
-                # Fallback: Create 4 alternatives based on typical sizing
+                # Fallback: Create 4 DIVERSE alternatives (different series/types, not just sizes)
                 estimated_base = current_hourly_rate if current_hourly_rate > 0 else _estimate_vm_hourly_cost(current_sku)
                 alternative_pricing = [
-                    {'sku_name': f'{current_sku.split("_")[0]}_Smaller1', 'retail_price': estimated_base * 0.5},
-                    {'sku_name': f'{current_sku.split("_")[0]}_Smaller2', 'retail_price': estimated_base * 0.75},
-                    {'sku_name': f'{current_sku.split("_")[0]}_Larger1', 'retail_price': estimated_base * 1.25},
-                    {'sku_name': f'{current_sku.split("_")[0]}_Larger2', 'retail_price': estimated_base * 1.5},
+                    {'sku_name': 'Standard_B2s (Budget/Burstable)', 'retail_price': estimated_base * 0.4},
+                    {'sku_name': 'Standard_D2s_v5 (General Purpose)', 'retail_price': estimated_base * 0.7},
+                    {'sku_name': 'Standard_E4s_v5 (Memory Optimized)', 'retail_price': estimated_base * 1.3},
+                    {'sku_name': 'Standard_F4s_v2 (Compute Optimized)', 'retail_price': estimated_base * 1.1},
                 ]
 
             # Format pricing for LLM (alternatives only)
@@ -434,13 +434,13 @@ def _generate_compute_prompt(resource_data: dict, start_date: str, end_date: str
             import traceback
             traceback.print_exc()
 
-            # Fallback: Create estimated alternatives
+            # Fallback: Create DIVERSE estimated alternatives (different types)
             if current_hourly_rate > 0:
                 alternative_pricing = [
-                    {'sku_name': f'{current_sku.split("_")[0]}_Smaller1', 'retail_price': current_hourly_rate * 0.5},
-                    {'sku_name': f'{current_sku.split("_")[0]}_Smaller2', 'retail_price': current_hourly_rate * 0.75},
-                    {'sku_name': f'{current_sku.split("_")[0]}_Larger1', 'retail_price': current_hourly_rate * 1.25},
-                    {'sku_name': f'{current_sku.split("_")[0]}_Larger2', 'retail_price': current_hourly_rate * 1.5},
+                    {'sku_name': 'Standard_B2s (Budget/Burstable)', 'retail_price': current_hourly_rate * 0.4},
+                    {'sku_name': 'Standard_D2s_v5 (General Purpose)', 'retail_price': current_hourly_rate * 0.7},
+                    {'sku_name': 'Standard_E4s_v5 (Memory Optimized)', 'retail_price': current_hourly_rate * 1.3},
+                    {'sku_name': 'Standard_F4s_v2 (Compute Optimized)', 'retail_price': current_hourly_rate * 1.1},
                 ]
                 pricing_context = "\n\nALTERNATIVE SKUs (ESTIMATED):\n"
                 for alt in alternative_pricing:
