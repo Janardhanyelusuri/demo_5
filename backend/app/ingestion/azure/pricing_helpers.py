@@ -159,20 +159,23 @@ def get_vm_alternative_pricing(conn, schema_name: str, current_sku: str, region:
 
 
 @connection
-def get_storage_pricing_context(conn, schema_name: str, region: str = "eastus") -> Dict:
+def get_storage_pricing_context(conn, schema_name: str, region: str = "eastus", max_results: int = 10) -> list:
     """
-    Get storage pricing context for different tiers and operations.
+    Get DIVERSE storage pricing options for comparison.
+    Fetches different tiers (Hot/Cool/Archive), redundancy (LRS/GRS/ZRS), and account types.
 
     Args:
         conn: Database connection
         schema_name: Schema name
         region: Azure region
+        max_results: Maximum number of diverse alternatives
 
     Returns:
-        Dict with storage pricing by tier
+        List of diverse storage option pricing dicts
     """
+    # Get diverse storage options across tiers and redundancy
     query = f"""
-        SELECT
+        SELECT DISTINCT
             sku_name,
             product_name,
             meter_name,
@@ -184,31 +187,32 @@ def get_storage_pricing_context(conn, schema_name: str, region: str = "eastus") 
               meter_name LIKE '%%Data Stored%%'
               OR meter_name LIKE '%%Capacity%%'
           )
+          AND retail_price > 0
         ORDER BY retail_price ASC
-        LIMIT 20
+        LIMIT %s
     """
 
     try:
         cursor = conn.cursor()
-        cursor.execute(query, (region,))
+        cursor.execute(query, (region, max_results))
         results = cursor.fetchall()
 
-        pricing_by_tier = {}
+        alternatives = []
         for row in results:
-            tier_key = row[0] or 'Unknown'
-            pricing_by_tier[tier_key] = {
+            alternatives.append({
                 'sku_name': row[0],
                 'product_name': row[1],
                 'meter_name': row[2],
                 'retail_price': float(row[3]) if row[3] else 0.0,
                 'unit_of_measure': row[4]
-            }
+            })
 
-        return pricing_by_tier
+        print(f"  Found {len(alternatives)} diverse storage options across different tiers/redundancy")
+        return alternatives
 
     except Exception as e:
         print(f"Error fetching storage pricing: {e}")
-        return {}
+        return []
 
 
 @connection
@@ -292,13 +296,13 @@ def format_vm_pricing_for_llm(current_pricing: Optional[Dict], alternatives: Lis
     return "\n".join(output)
 
 
-def format_storage_pricing_for_llm(storage_pricing: Dict) -> str:
+def format_storage_pricing_for_llm(storage_pricing: list) -> str:
     """
     Format storage pricing data for LLM context.
     Condensed format to reduce token usage.
 
     Args:
-        storage_pricing: Storage pricing dict by tier
+        storage_pricing: List of storage pricing dicts
 
     Returns:
         Formatted string for LLM prompt
@@ -307,9 +311,9 @@ def format_storage_pricing_for_llm(storage_pricing: Dict) -> str:
         return "STORAGE PRICING: Not available"
 
     output = []
-    # Only send top 3 tiers to reduce token usage
-    for idx, (tier, info) in enumerate(list(storage_pricing.items())[:3], 1):
-        output.append(f"TIER{idx}: {info['meter_name']} = {info['retail_price']:.5f}/{info['unit_of_measure']}")
+    # Only send top 5 options to reduce token usage
+    for idx, option in enumerate(storage_pricing[:5], 1):
+        output.append(f"OPT{idx}: {option['meter_name']} = {option['retail_price']:.5f}/{option['unit_of_measure']}")
 
     return "\n".join(output)
 

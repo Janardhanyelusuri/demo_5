@@ -159,16 +159,19 @@ def _generate_storage_prompt(resource_data: dict, start_date: str, end_date: str
     current_sku = resource_data.get("sku", "N/A")
     current_tier = resource_data.get("access_tier", "N/A")
     billed_cost = resource_data.get("billed_cost", 0.0)
+    duration_days = resource_data.get("duration_days", 30)
 
     # Fetch pricing data from database
     schema_name = resource_data.get("schema_name", "")
     region = resource_data.get("region", "eastus")
 
+    storage_pricing = []
     pricing_context = ""
+
     if schema_name:
         try:
-            # Get storage pricing context for different tiers
-            storage_pricing = get_storage_pricing_context(schema_name, region)
+            # Only fetch DIVERSE storage options (5 options across tiers/redundancy)
+            storage_pricing = get_storage_pricing_context(schema_name, region, max_results=5)
 
             # Debug: Print fetched pricing
             print(f"\n{'='*60}")
@@ -176,72 +179,47 @@ def _generate_storage_prompt(resource_data: dict, start_date: str, end_date: str
             print(f"{'='*60}")
 
             if storage_pricing and len(storage_pricing) > 0:
-                print(f"CURRENT TIER: {current_tier}")
-                print(f"\nSTORAGE PRICING OPTIONS (Top 5):")
-                for idx, (tier, info) in enumerate(list(storage_pricing.items())[:5], 1):
-                    marker = "← CURRENT" if current_tier.lower() in info['meter_name'].lower() else ""
-                    print(f"  {idx}. {info['meter_name']}: {info['retail_price']:.6f} per {info['unit_of_measure']} {marker}")
+                print(f"CURRENT: {current_sku} {current_tier}")
+                print(f"\nDIVERSE STORAGE OPTIONS:")
+                for idx, opt in enumerate(storage_pricing, 1):
+                    print(f"  {idx}. {opt['meter_name']}: {opt['retail_price']:.6f} per {opt['unit_of_measure']}")
             else:
-                print(f"CURRENT TIER: {current_tier}")
+                print(f"CURRENT: {current_sku} {current_tier}")
                 print(f"STORAGE PRICING: Not found in database")
                 print(f"Using fallback pricing estimates")
 
-                # Fallback pricing for common storage tiers
-                storage_pricing = {
-                    'Hot': {'meter_name': 'Hot Tier Data Stored', 'retail_price': 0.0184, 'unit_of_measure': 'GB'},
-                    'Cool': {'meter_name': 'Cool Tier Data Stored', 'retail_price': 0.0115, 'unit_of_measure': 'GB'},
-                    'Archive': {'meter_name': 'Archive Tier Data Stored', 'retail_price': 0.002, 'unit_of_measure': 'GB'},
-                    'Premium': {'meter_name': 'Premium LRS Data Stored', 'retail_price': 0.15, 'unit_of_measure': 'GB'}
-                }
+                # Fallback: Diverse storage options
+                storage_pricing = [
+                    {'meter_name': 'Archive LRS Data Stored', 'retail_price': 0.002, 'unit_of_measure': 'GB'},
+                    {'meter_name': 'Cool LRS Data Stored', 'retail_price': 0.0115, 'unit_of_measure': 'GB'},
+                    {'meter_name': 'Hot LRS Data Stored', 'retail_price': 0.0184, 'unit_of_measure': 'GB'},
+                    {'meter_name': 'Hot GRS Data Stored', 'retail_price': 0.0368, 'unit_of_measure': 'GB'},
+                    {'meter_name': 'Premium LRS Data Stored', 'retail_price': 0.15, 'unit_of_measure': 'GB'}
+                ]
 
-                print(f"  Hot: 0.0184 per GB (estimated)")
-                print(f"  Cool: 0.0115 per GB (estimated)")
-                print(f"  Archive: 0.002 per GB (estimated)")
-                print(f"  (Fallback estimates - actual pricing unavailable)")
+                for opt in storage_pricing:
+                    print(f"  {opt['meter_name']}: {opt['retail_price']:.6f} per GB (estimated)")
 
             print(f"{'='*60}\n")
 
             # Format pricing for LLM
-            pricing_context = "\n\n" + format_storage_pricing_for_llm(storage_pricing) + "\n"
+            pricing_context = format_storage_pricing_for_llm(storage_pricing)
         except Exception as e:
             print(f"⚠️ Error fetching Storage pricing data: {e}")
             import traceback
             traceback.print_exc()
 
             # Fallback pricing on error
-            pricing_context = f"\n\nPRICING DATA (ESTIMATED - Database unavailable):\nCurrent tier: {current_tier}\nHot: ~0.0184 USD/GB, Cool: ~0.0115 USD/GB, Archive: ~0.002 USD/GB\n"
+            storage_pricing = [
+                {'meter_name': 'Archive LRS', 'retail_price': 0.002, 'unit_of_measure': 'GB'},
+                {'meter_name': 'Cool LRS', 'retail_price': 0.0115, 'unit_of_measure': 'GB'},
+                {'meter_name': 'Hot LRS', 'retail_price': 0.0184, 'unit_of_measure': 'GB'},
+            ]
+            pricing_context = format_storage_pricing_for_llm(storage_pricing)
     else:
-        pricing_context = "\n\nPRICING DATA: Not available (schema not provided)\n"
+        pricing_context = "STORAGE PRICING: Not available (schema not provided)"
 
-    # Check if we have pricing and metrics available
-    has_pricing = pricing_context and "Not available" not in pricing_context
-    has_metrics = bool(formatted_metrics)
-
-    # Extract key metrics for base_of_recommendations (with units)
-    metrics_list = []
-    for metric_name, values in formatted_metrics.items():
-        if values.get('Avg') is not None:
-            # Extract unit from metric name if it has one
-            if 'Capacity' in metric_name or 'Used' in metric_name or 'GB' in metric_name:
-                unit = 'GB'
-            elif 'Transactions' in metric_name or 'Operations' in metric_name:
-                unit = 'count'
-            elif 'Latency' in metric_name:
-                unit = 'ms'
-            elif 'Availability' in metric_name or 'Percentage' in metric_name:
-                unit = '%'
-            else:
-                unit = ''
-
-            if unit:
-                metrics_list.append(f'"{metric_name}: Avg={values["Avg"]:.2f}{unit}, Max={values.get("Max", 0):.2f}{unit}"')
-            else:
-                metrics_list.append(f'"{metric_name}: Avg={values["Avg"]:.2f}, Max={values.get("Max", 0):.2f}"')
-
-    # Format as JSON array string for LLM
-    metrics_list_str = '[' + ', '.join(metrics_list) + ']' if metrics_list else '[]'
-
-    # Build explicit metric summary for the prompt (with units)
+    # Build explicit metric summary for the prompt
     metrics_summary = []
     for metric_name, values in formatted_metrics.items():
         if values.get('Avg') is not None:
@@ -262,58 +240,60 @@ def _generate_storage_prompt(resource_data: dict, start_date: str, end_date: str
                 metrics_summary.append(f"- {metric_name}: Avg={values['Avg']:.2f}, Max={values.get('Max', 0):.2f}, MaxDate={values.get('MaxDate', 'N/A')}")
 
     metrics_text = "\n".join(metrics_summary) if metrics_summary else "No metrics available"
-    duration_days = resource_data.get("duration_days", 30)
+
+    # Check if we have sufficient data
+    has_pricing = bool(storage_pricing)
+    has_metrics = bool(formatted_metrics)
 
     # Guard clause for missing data
     if not has_pricing or not has_metrics or current_sku == "N/A" or current_sku == "None":
-        return f"""Azure Storage {resource_data.get("resource_id", "N/A")} | {current_sku} {current_tier} | {duration_days}d | ${billed_cost:.2f}
+        return f"""Azure Storage {resource_data.get("resource_id", "N/A")} | {current_sku} {current_tier} | {duration_days}d | {billed_cost:.2f}
 ISSUE: {'No pricing' if not has_pricing else 'No metrics' if not has_metrics else 'Unknown SKU'}
-OUTPUT: {{"recommendations": {{"effective_recommendation": {{"text": "Cannot recommend", "explanation": "Insufficient data", "saving_pct": 0}}, "additional_recommendation": [], "base_of_recommendations": {metrics_list_str}}}, "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}}, "anomalies": [], "contract_deal": {{"assessment": "unknown", "for_sku": "{current_sku} {current_tier}", "reason": "Insufficient data", "monthly_saving_pct": 0, "annual_saving_pct": 0}}}}"""
+OUTPUT: {{"recommendations": {{"effective_recommendation": {{"text": "Cannot recommend", "explanation": "Insufficient data", "saving_pct": 0}}, "additional_recommendation": [], "base_of_recommendations": []}}, "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}}, "anomalies": [], "contract_deal": {{"assessment": "unknown", "for_sku": "{current_sku} {current_tier}", "reason": "Insufficient data", "monthly_saving_pct": 0, "annual_saving_pct": 0}}}}"""
 
-    return f"""Azure Storage {resource_data.get("resource_id", "N/A")} | {current_sku} {current_tier} | {duration_days}d | ${monthly_forecast:.2f}/mo
+    # Prepare full resource data for LLM to analyze
+    resource_data_str = f"""RESOURCE: {current_sku} {current_tier} in {region}
+PERIOD: {duration_days} days
+BILLED_COST: {billed_cost:.4f}
+MONTHLY_FORECAST: {monthly_forecast:.2f}
+ANNUAL_FORECAST: {annual_forecast:.2f}
 
 METRICS:
 {metrics_text}
 
-PRICING:
+STORAGE_OPTIONS:
 {pricing_context}
+"""
 
-RULES:
-1. EXPLANATION STRUCTURE (2 parts):
-   Part A - Metrics Analysis (WHY): Analyze metrics first. Explain theoretically WHY this recommendation makes sense based on usage patterns.
-   Part B - Cost Calculation (MATH): Then show calculations with actual tier/SKU names.
-   Example: "Storage account {current_sku} {current_tier} has low transaction count and capacity growing slowly. Switching to Cool tier at $0.01/GB × 100GB = $1/mo vs current Hot tier at ${monthly_forecast:.2f}/mo saves $X (Y%)"
+    return f"""Analyze this Azure Storage account and provide cost optimization recommendations.
 
-2. Use ACTUAL NAMES in explanations:
-   - Mention "{current_sku} {current_tier}" by name
-   - Mention alternative tier by name (e.g., "Cool tier", "Archive tier")
-   - Format: "{current_sku} {current_tier} → Alternative_Tier"
+{resource_data_str}
 
-3. CRITICAL: Only recommend if savings $ > 0. If savings $ ≤ 0, DO NOT recommend (skip it).
-
-4. Each recommendation MUST be DIFFERENT ACTION CATEGORY:
-   - Tier change, lifecycle policy, replication change, versioning cleanup, reserved capacity
-   - NOT three different tiers
-
-5. contract_deal MUST have theoretical reasoning:
-   - Analyze data growth and access patterns
-   - If data is stable/growing and frequently accessed, reserved capacity is good
-   - If data is volatile or infrequently accessed, reserved capacity is bad
-   - Show: "assessment", "for_sku", "reason" (usage-based), "monthly_saving_pct", "annual_saving_pct"
+INSTRUCTIONS:
+1. Analyze all resource data above (metrics, usage patterns, costs, storage options)
+2. Determine what recommendations are appropriate based on the data
+3. For each recommendation:
+   - First explain WHY (theoretical analysis of metrics and usage patterns)
+   - Then show calculations (mathematical proof with actual tier/SKU names and numbers)
+4. Use actual tier/SKU names (e.g., "{current_sku} {current_tier}", not "current")
+5. Only recommend if it saves money (positive savings)
+6. Each recommendation must be a DIFFERENT type of action (tier change, lifecycle policy, redundancy change, versioning cleanup, reserved capacity - NOT multiple tier changes)
+7. For base_of_recommendations: select the metrics YOU used to make your decision
+8. For contract_deal: analyze if reserved capacity makes sense for THIS usage pattern (stable/growing data = good, volatile data = bad)
 
 OUTPUT (JSON):
 {{
   "recommendations": {{
-    "effective_recommendation": {{"text": "Action", "explanation": "Metrics + cost calc", "saving_pct": <num>}},
+    "effective_recommendation": {{"text": "Action", "explanation": "WHY (metrics analysis) + MATH (calculations)", "saving_pct": <num>}},
     "additional_recommendation": [
-      {{"text": "Unique type", "explanation": "Metrics + cost calc", "saving_pct": <num>}},
-      {{"text": "Another unique type", "explanation": "Metrics + cost calc", "saving_pct": <num>}}
+      {{"text": "Different action type", "explanation": "WHY + MATH", "saving_pct": <num>}},
+      {{"text": "Another different action type", "explanation": "WHY + MATH", "saving_pct": <num>}}
     ],
-    "base_of_recommendations": {metrics_list_str}
+    "base_of_recommendations": ["metric1", "metric2"]
   }},
   "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}},
   "anomalies": [{{"metric_name": "Name", "timestamp": "MaxDate", "value": <num>, "reason_short": "Why unusual"}}],
-  "contract_deal": {{"assessment": "good|bad|unknown", "for_sku": "{current_sku} {current_tier}", "reason": "Reserved capacity vs on-demand for {current_sku} {current_tier}", "monthly_saving_pct": <num>, "annual_saving_pct": <num>}}
+  "contract_deal": {{"assessment": "good|bad|unknown", "for_sku": "{current_sku} {current_tier}", "reason": "Theoretical analysis of usage pattern", "monthly_saving_pct": <num>, "annual_saving_pct": <num>}}
 }}"""
 
 def _estimate_vm_hourly_cost(sku_name: str) -> float:
