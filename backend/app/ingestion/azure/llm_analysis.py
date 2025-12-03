@@ -626,6 +626,7 @@ def _generate_public_ip_prompt(resource_data: dict, start_date: str, end_date: s
     allocation_method = resource_data.get("allocation_method", "N/A")
     billed_cost = resource_data.get("billed_cost", 0.0)
     duration_days = resource_data.get("duration_days", 30)
+    contracted_unit_price = resource_data.get("contracted_unit_price", None)  # From FOCUS billing data
 
     # Fetch pricing data from database
     schema_name = resource_data.get("schema_name", "")
@@ -669,29 +670,10 @@ def _generate_public_ip_prompt(resource_data: dict, start_date: str, end_date: s
 
             print(f"{'='*60}\n")
 
-            # Calculate usage like VMs: use contracted price from pricing table, then calculate implied hours
-            if billed_cost > 0 and duration_days > 0 and ip_pricing:
-                # Find current IP's contracted/retail price from pricing table
-                contracted_rate = None
-                for opt in ip_pricing:
-                    meter_lower = opt['meter_name'].lower()
-                    sku_lower = current_sku.lower() if current_sku != "N/A" else ""
-                    allocation_lower = allocation_method.lower() if allocation_method != "N/A" else ""
-
-                    # Match based on SKU (Standard/Basic) and allocation method (Static/Dynamic)
-                    if (sku_lower in meter_lower or meter_lower in sku_lower) and \
-                       (allocation_lower in meter_lower or meter_lower in allocation_lower):
-                        contracted_rate = opt['retail_price']
-                        break
-
-                # Fallback to defaults if not found in pricing table
-                if not contracted_rate:
-                    if 'standard' in current_sku.lower():
-                        contracted_rate = 0.005
-                    elif 'basic' in current_sku.lower():
-                        contracted_rate = 0.003
-                    else:
-                        contracted_rate = 0.005
+            # Calculate usage like VMs: use contracted price from FOCUS billing data
+            if billed_cost > 0 and duration_days > 0 and contracted_unit_price:
+                # Use contracted price from FOCUS billing data (not pricing table)
+                contracted_rate = float(contracted_unit_price)
 
                 # Calculate implied usage hours from billed cost and contracted rate
                 # Public IPs are always allocated 24/7, so this tells us actual hours in the period
@@ -706,7 +688,7 @@ def _generate_public_ip_prompt(resource_data: dict, start_date: str, end_date: s
                 print(f"USAGE CALCULATION - Azure Public IP (like VMs)")
                 print(f"{'='*60}")
                 print(f"Billed cost: ${billed_cost:.4f} over {duration_days} days")
-                print(f"Contracted rate: ${contracted_rate:.6f}/hr (from pricing table for {current_sku} {allocation_method})")
+                print(f"Contracted rate: ${contracted_rate:.6f}/hr (from FOCUS billing data)")
                 print(f"Implied usage: {implied_hours_total:.2f} hours total = {hours_per_day:.2f} hrs/day")
                 print(f"Monthly usage estimate: {estimated_hours:.2f} hrs/month (24/7 operation)")
                 print(f"Monthly cost projection: ${current_hourly_rate * estimated_hours:.4f}")
@@ -769,7 +751,7 @@ MONTHLY_FORECAST: ${monthly_forecast:.2f}
 ANNUAL_FORECAST: ${annual_forecast:.2f}
 
 CURRENT USAGE:
-CONTRACTED_RATE: ${current_hourly_rate:.6f}/hour (from pricing table)
+CONTRACTED_RATE: ${current_hourly_rate:.6f}/hour (from FOCUS billing data)
 ESTIMATED_USAGE: {estimated_hours:.2f} hours/month (24/7 operation)
 MONTHLY_COST: ${current_hourly_rate * estimated_hours:.4f}
 
@@ -786,7 +768,7 @@ ALTERNATE_IP_OPTIONS (from pricing table):
 
 INSTRUCTIONS:
 1. Analyze all resource data above (metrics, usage patterns, costs, IP options)
-2. CONTRACTED_RATE: ${current_hourly_rate:.6f}/hr is from the pricing table for current {current_sku} ({allocation_method})
+2. CONTRACTED_RATE: ${current_hourly_rate:.6f}/hr is from FOCUS billing data for current {current_sku} ({allocation_method})
 3. ALTERNATE_IP_OPTIONS show pricing table rates for different IP SKUs/allocations
 4. Public IPs are charged 24/7 (always allocated). ESTIMATED_USAGE = {estimated_hours:.2f} hrs/month
 5. For each recommendation:
