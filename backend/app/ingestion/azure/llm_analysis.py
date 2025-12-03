@@ -633,6 +633,8 @@ def _generate_public_ip_prompt(resource_data: dict, start_date: str, end_date: s
 
     ip_pricing = []
     pricing_context = ""
+    current_hourly_rate = 0.0
+    estimated_hours = 0.0
 
     if schema_name:
         try:
@@ -666,6 +668,46 @@ def _generate_public_ip_prompt(resource_data: dict, start_date: str, end_date: s
                     print(f"  {opt['meter_name']}: {opt['retail_price']:.6f} per Hour (estimated)")
 
             print(f"{'='*60}\n")
+
+            # Calculate current hourly rate and implied usage hours (like VMs do)
+            if billed_cost > 0 and duration_days > 0 and ip_pricing:
+                # Try to find current SKU in pricing options
+                current_price_match = None
+                for opt in ip_pricing:
+                    meter_lower = opt['meter_name'].lower()
+                    sku_lower = current_sku.lower() if current_sku != "N/A" else ""
+                    allocation_lower = allocation_method.lower() if allocation_method != "N/A" else ""
+
+                    # Match based on SKU (Standard/Basic) and allocation method (Static/Dynamic)
+                    if (sku_lower in meter_lower or meter_lower in sku_lower) and \
+                       (allocation_lower in meter_lower or meter_lower in allocation_lower):
+                        current_price_match = opt
+                        break
+
+                # If exact match found, use it; otherwise estimate based on SKU tier
+                if current_price_match:
+                    current_hourly_rate = current_price_match['retail_price']
+                elif 'standard' in current_sku.lower():
+                    current_hourly_rate = 0.005  # Standard default
+                elif 'basic' in current_sku.lower():
+                    current_hourly_rate = 0.003  # Basic default
+                else:
+                    current_hourly_rate = 0.005  # Default to Standard
+
+                # Calculate implied usage hours
+                if current_hourly_rate > 0:
+                    estimated_hours_total = billed_cost / current_hourly_rate
+                    hours_per_day = estimated_hours_total / duration_days
+                    estimated_hours = hours_per_day * 30.4375  # Monthly hours
+
+                    print(f"\n{'='*60}")
+                    print(f"USAGE CALCULATION - Azure Public IP")
+                    print(f"{'='*60}")
+                    print(f"Billed cost: {billed_cost:.4f} over {duration_days} days")
+                    print(f"Current hourly rate: {current_hourly_rate:.6f}/hr")
+                    print(f"Implied usage: {estimated_hours_total:.2f} hours total = {hours_per_day:.2f} hrs/day")
+                    print(f"Monthly usage estimate: {estimated_hours:.2f} hrs/month")
+                    print(f"{'='*60}\n")
 
             # Format pricing for LLM
             pricing_context = format_ip_pricing_for_llm(ip_pricing)
@@ -722,6 +764,8 @@ PERIOD: {duration_days} days
 BILLED_COST: {billed_cost:.4f}
 MONTHLY_FORECAST: {monthly_forecast:.2f}
 ANNUAL_FORECAST: {annual_forecast:.2f}
+CURRENT_HOURLY_RATE: {current_hourly_rate:.6f}/hour
+ESTIMATED_USAGE: {estimated_hours:.2f} hours/month
 
 METRICS:
 {metrics_text}
@@ -736,10 +780,11 @@ PUBLIC_IP_OPTIONS:
 
 INSTRUCTIONS:
 1. Analyze all resource data above (metrics, usage patterns, costs, IP options)
-2. Determine what recommendations are appropriate based on the data
+2. Use the CURRENT_HOURLY_RATE ({current_hourly_rate:.6f}/hour) and ESTIMATED_USAGE ({estimated_hours:.2f} hours/month) in your calculations
 3. For each recommendation:
    - First explain WHY (theoretical analysis of metrics and usage patterns)
-   - Then show calculations (mathematical proof with actual SKU names and numbers)
+   - Then show calculations using: NEW_HOURLY_RATE × ESTIMATED_USAGE for monthly cost
+   - Example: If recommending Basic Static at $0.00360/hr: Cost = 0.00360 × {estimated_hours:.2f} = $X/month
 4. Use actual SKU/allocation names (e.g., "{current_sku} ({allocation_method})", not "current")
 5. Only recommend if it saves money (positive savings). If a recommendation doesn't save money, use saving_pct: 0
 6. Each recommendation must be a DIFFERENT type of action (deallocate, change allocation method, reserved IP, DDoS protection, SKU change - NOT multiple variations of same action)
