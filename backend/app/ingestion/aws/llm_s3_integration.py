@@ -361,7 +361,10 @@ STORAGE_CLASSES:
 
 INSTRUCTIONS:
 1. Analyze all resource data above (metrics, usage patterns, costs, storage classes)
-2. Determine what recommendations are appropriate based on the data
+2. For storage calculations, use size from METRICS (e.g., "Bucket Size: 150GB"):
+   - Current effective rate: BILLED_COST / size_GB / {duration_days} days × 30 = $/GB/month
+   - Alternative monthly cost: size_GB × alternative_rate_per_GB
+   - Example: If 150GB costs ${billed_cost:.2f} in {duration_days} days, effective rate = ${billed_cost:.4f}/150/{duration_days}×30
 3. For each recommendation:
    - First explain WHY (theoretical analysis of metrics and access patterns)
    - Then show calculations (mathematical proof with actual storage class names and numbers)

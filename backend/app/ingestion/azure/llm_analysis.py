@@ -271,7 +271,10 @@ STORAGE_OPTIONS:
 
 INSTRUCTIONS:
 1. Analyze all resource data above (metrics, usage patterns, costs, storage options)
-2. Determine what recommendations are appropriate based on the data
+2. For storage calculations, use capacity from METRICS (e.g., "Blob Capacity: 150GB"):
+   - Current effective rate: BILLED_COST / capacity_GB / {duration_days} days × 30 = $/GB/month
+   - Alternative monthly cost: capacity_GB × alternative_rate_per_GB
+   - Example: If 150GB costs ${billed_cost:.2f} in {duration_days} days, effective rate = ${billed_cost:.4f}/150/{duration_days}×30
 3. For each recommendation:
    - First explain WHY (theoretical analysis of metrics and usage patterns)
    - Then show calculations (mathematical proof with actual tier/SKU names and numbers)
