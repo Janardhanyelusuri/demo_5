@@ -366,25 +366,28 @@ INSTRUCTIONS:
    - First explain WHY (theoretical analysis of metrics and access patterns)
    - Then show calculations (mathematical proof with actual storage class names and numbers)
 4. Use actual bucket and storage class names (e.g., "{bucket_name} (Standard)", not "current")
-5. Only recommend if it saves money (positive savings)
+5. Only recommend if it saves money (positive savings). If a recommendation doesn't save money, use saving_pct: 0
 6. Each recommendation must be a DIFFERENT type of action (storage class change, lifecycle policy, versioning cleanup, replication optimization, Intelligent-Tiering - NOT multiple storage class changes)
 7. For base_of_recommendations: select the metrics YOU used to make your decision - MUST include metric name AND value (e.g., "Size: 150GB", "NumberOfObjects: 5000")
 8. For contract_deal: analyze if reserved capacity makes sense for THIS usage pattern (stable/growing data with frequent access = good, volatile or infrequent access = bad)
+9. CRITICAL: saving_pct MUST ALWAYS be a NUMBER (integer or decimal), NEVER a string like "unknown". Use 0 if savings cannot be calculated.
 
 OUTPUT (JSON):
 {{
   "recommendations": {{
-    "effective_recommendation": {{"text": "Action", "explanation": "WHY (metrics analysis) + MATH (calculations)", "saving_pct": <num>}},
+    "effective_recommendation": {{"text": "Action", "explanation": "WHY (metrics analysis) + MATH (calculations)", "saving_pct": 0}},
     "additional_recommendation": [
-      {{"text": "Different action type", "explanation": "WHY + MATH", "saving_pct": <num>}},
-      {{"text": "Another different action type", "explanation": "WHY + MATH", "saving_pct": <num>}}
+      {{"text": "Different action type", "explanation": "WHY + MATH", "saving_pct": 0}},
+      {{"text": "Another different action type", "explanation": "WHY + MATH", "saving_pct": 0}}
     ],
     "base_of_recommendations": ["metric_name: value with unit", "metric_name: value with unit"]
   }},
   "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}},
-  "anomalies": [{{"metric_name": "Name", "timestamp": "MaxDate", "value": <num>, "reason_short": "Why unusual"}}],
-  "contract_deal": {{"assessment": "good|bad|unknown", "for_sku": "S3 Standard", "reason": "Theoretical analysis of usage pattern", "monthly_saving_pct": <num>, "annual_saving_pct": <num>}}
-}}"""
+  "anomalies": [{{"metric_name": "Name", "timestamp": "MaxDate", "value": 0, "reason_short": "Why unusual"}}],
+  "contract_deal": {{"assessment": "good|bad|unknown", "for_sku": "S3 Standard", "reason": "Theoretical analysis of usage pattern", "monthly_saving_pct": 0, "annual_saving_pct": 0}}
+}}
+
+REMINDER: All numeric fields (saving_pct, value, monthly_saving_pct, annual_saving_pct) must be NUMBERS, not strings."""
     return prompt
 
 
