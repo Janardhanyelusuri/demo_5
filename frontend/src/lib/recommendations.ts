@@ -15,10 +15,15 @@ import { format } from "date-fns";
 // Helper function to normalize the data - preserving ALL data sections
 const normalizeRecommendations = (data: RawRecommendation[]): NormalizedRecommendation[] => {
   return data.map((item) => {
-    // Calculate total saving percentage
-    let totalSavingPct = item.recommendations.effective_recommendation.saving_pct;
+    // Calculate total saving percentage - handle non-numeric values
+    let totalSavingPct = typeof item.recommendations.effective_recommendation.saving_pct === 'number'
+      ? item.recommendations.effective_recommendation.saving_pct
+      : 0;
+
     item.recommendations.additional_recommendation.forEach(detail => {
-        totalSavingPct += detail.saving_pct;
+        // Only add numeric saving percentages, skip "unknown" or other invalid values
+        const savingPct = typeof detail.saving_pct === 'number' ? detail.saving_pct : 0;
+        totalSavingPct += savingPct;
     });
 
     const getSeverity = (saving: number): 'High' | 'Medium' | 'Low' => {

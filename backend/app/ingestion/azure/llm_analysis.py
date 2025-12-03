@@ -276,25 +276,28 @@ INSTRUCTIONS:
    - First explain WHY (theoretical analysis of metrics and usage patterns)
    - Then show calculations (mathematical proof with actual tier/SKU names and numbers)
 4. Use actual tier/SKU names (e.g., "{current_sku} {current_tier}", not "current")
-5. Only recommend if it saves money (positive savings)
+5. Only recommend if it saves money (positive savings). If a recommendation doesn't save money, use saving_pct: 0
 6. Each recommendation must be a DIFFERENT type of action (tier change, lifecycle policy, redundancy change, versioning cleanup, reserved capacity - NOT multiple tier changes)
 7. For base_of_recommendations: select the metrics YOU used to make your decision - MUST include metric name AND value (e.g., "Used Capacity: 150GB", "Transactions: 1000 ops/sec")
 8. For contract_deal: analyze if reserved capacity makes sense for THIS usage pattern (stable/growing data = good, volatile data = bad)
+9. CRITICAL: saving_pct MUST ALWAYS be a NUMBER (integer or decimal), NEVER a string like "unknown". Use 0 if savings cannot be calculated.
 
 OUTPUT (JSON):
 {{
   "recommendations": {{
-    "effective_recommendation": {{"text": "Action", "explanation": "WHY (metrics analysis) + MATH (calculations)", "saving_pct": <num>}},
+    "effective_recommendation": {{"text": "Action", "explanation": "WHY (metrics analysis) + MATH (calculations)", "saving_pct": 0}},
     "additional_recommendation": [
-      {{"text": "Different action type", "explanation": "WHY + MATH", "saving_pct": <num>}},
-      {{"text": "Another different action type", "explanation": "WHY + MATH", "saving_pct": <num>}}
+      {{"text": "Different action type", "explanation": "WHY + MATH", "saving_pct": 0}},
+      {{"text": "Another different action type", "explanation": "WHY + MATH", "saving_pct": 0}}
     ],
     "base_of_recommendations": ["metric_name: value with unit", "metric_name: value with unit"]
   }},
   "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}},
-  "anomalies": [{{"metric_name": "Name", "timestamp": "MaxDate", "value": <num>, "reason_short": "Why unusual"}}],
-  "contract_deal": {{"assessment": "good|bad|unknown", "for_sku": "{current_sku} {current_tier}", "reason": "Theoretical analysis of usage pattern", "monthly_saving_pct": <num>, "annual_saving_pct": <num>}}
-}}"""
+  "anomalies": [{{"metric_name": "Name", "timestamp": "MaxDate", "value": 0, "reason_short": "Why unusual"}}],
+  "contract_deal": {{"assessment": "good|bad|unknown", "for_sku": "{current_sku} {current_tier}", "reason": "Theoretical analysis of usage pattern", "monthly_saving_pct": 0, "annual_saving_pct": 0}}
+}}
+
+REMINDER: All numeric fields (saving_pct, value, monthly_saving_pct, annual_saving_pct) must be NUMBERS, not strings."""
 
 def _estimate_vm_hourly_cost(sku_name: str) -> float:
     """
@@ -484,26 +487,29 @@ INSTRUCTIONS:
    - First explain WHY (theoretical analysis of metrics and usage patterns)
    - Then show calculations (mathematical proof with actual SKU names and numbers)
 4. Use actual SKU names (e.g., "{current_sku}", not "current")
-5. Only recommend if it saves money (positive savings)
+5. Only recommend if it saves money (positive savings). If a recommendation doesn't save money, use saving_pct: 0
 6. Each recommendation must be a DIFFERENT type of action:
    - Consider: SKU resize, reserved instances, usage schedules, spot instances, deallocate unused, optimization features
    - Pick the ones that make sense for THIS resource's specific data
 7. For base_of_recommendations: select the metrics YOU used to make your decision - MUST include metric name AND value (e.g., "CPU Percentage: 45.2%", "Memory Used: 2.5GB")
 8. For contract_deal: analyze if reserved pricing makes sense for THIS usage pattern
+9. CRITICAL: saving_pct MUST ALWAYS be a NUMBER (integer or decimal), NEVER a string like "unknown". Use 0 if savings cannot be calculated.
 
 OUTPUT FORMAT (JSON):
 {{
   "recommendations": {{
-    "effective_recommendation": {{"text": "action description", "explanation": "theoretical WHY + calculation MATH", "saving_pct": number}},
+    "effective_recommendation": {{"text": "action description", "explanation": "theoretical WHY + calculation MATH", "saving_pct": 0}},
     "additional_recommendation": [
-      {{"text": "action description", "explanation": "theoretical WHY + calculation MATH", "saving_pct": number}}
+      {{"text": "action description", "explanation": "theoretical WHY + calculation MATH", "saving_pct": 0}}
     ],
     "base_of_recommendations": ["metric_name: value with unit", "metric_name: value with unit"]
   }},
   "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}},
-  "anomalies": [{{"metric_name": "name", "timestamp": "date", "value": number, "reason_short": "why unusual"}}],
-  "contract_deal": {{"assessment": "good|bad|unknown", "for_sku": "{current_sku}", "reason": "theoretical analysis of usage pattern", "monthly_saving_pct": number, "annual_saving_pct": number}}
-}}"""
+  "anomalies": [{{"metric_name": "name", "timestamp": "date", "value": 0, "reason_short": "why unusual"}}],
+  "contract_deal": {{"assessment": "good|bad|unknown", "for_sku": "{current_sku}", "reason": "theoretical analysis of usage pattern", "monthly_saving_pct": 0, "annual_saving_pct": 0}}
+}}
+
+REMINDER: All numeric fields (saving_pct, value, monthly_saving_pct, annual_saving_pct) must be NUMBERS, not strings."""
 
 # --- EXPORTED LLM CALL FUNCTIONS (with logging) ---
 
@@ -735,25 +741,28 @@ INSTRUCTIONS:
    - First explain WHY (theoretical analysis of metrics and usage patterns)
    - Then show calculations (mathematical proof with actual SKU names and numbers)
 4. Use actual SKU/allocation names (e.g., "{current_sku} ({allocation_method})", not "current")
-5. Only recommend if it saves money (positive savings)
+5. Only recommend if it saves money (positive savings). If a recommendation doesn't save money, use saving_pct: 0
 6. Each recommendation must be a DIFFERENT type of action (deallocate, change allocation method, reserved IP, DDoS protection, SKU change - NOT multiple variations of same action)
 7. For base_of_recommendations: select the metrics YOU used to make your decision - MUST include metric name AND value (e.g., "ByteCount: 1.5GB", "TCP Bytes Forwarded DDoS: 0.0GB")
 8. For contract_deal: analyze if reserved IP makes sense for THIS usage pattern (Static and always allocated = good, Dynamic or frequently deallocated = bad)
+9. CRITICAL: saving_pct MUST ALWAYS be a NUMBER (integer or decimal), NEVER a string like "unknown". Use 0 if savings cannot be calculated.
 
 OUTPUT (JSON):
 {{
   "recommendations": {{
-    "effective_recommendation": {{"text": "Action", "explanation": "WHY (metrics analysis) + MATH (calculations)", "saving_pct": <num>}},
+    "effective_recommendation": {{"text": "Action", "explanation": "WHY (metrics analysis) + MATH (calculations)", "saving_pct": 0}},
     "additional_recommendation": [
-      {{"text": "Different action type", "explanation": "WHY + MATH", "saving_pct": <num>}},
-      {{"text": "Another different action type", "explanation": "WHY + MATH", "saving_pct": <num>}}
+      {{"text": "Different action type", "explanation": "WHY + MATH", "saving_pct": 0}},
+      {{"text": "Another different action type", "explanation": "WHY + MATH", "saving_pct": 0}}
     ],
     "base_of_recommendations": ["metric_name: value with unit", "metric_name: value with unit"]
   }},
   "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}},
-  "anomalies": [{{"metric_name": "Name", "timestamp": "MaxDate", "value": <num>, "reason_short": "Why unusual"}}],
-  "contract_deal": {{"assessment": "good|bad|unknown", "for_sku": "{current_sku}", "reason": "Theoretical analysis of usage pattern", "monthly_saving_pct": <num>, "annual_saving_pct": <num>}}
-}}"""
+  "anomalies": [{{"metric_name": "Name", "timestamp": "MaxDate", "value": 0, "reason_short": "Why unusual"}}],
+  "contract_deal": {{"assessment": "good|bad|unknown", "for_sku": "{current_sku}", "reason": "Theoretical analysis of usage pattern", "monthly_saving_pct": 0, "annual_saving_pct": 0}}
+}}
+
+REMINDER: All numeric fields (saving_pct, value, monthly_saving_pct, annual_saving_pct) must be NUMBERS, not strings."""
 
 
 def get_public_ip_recommendation_single(resource_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
