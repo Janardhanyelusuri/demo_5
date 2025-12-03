@@ -392,8 +392,8 @@ PERIOD: {duration_days} days
 BILLED_COST: {billed_cost:.4f}
 MONTHLY_FORECAST: {monthly_forecast:.2f}
 ANNUAL_FORECAST: {annual_forecast:.2f}
-ESTIMATED_USAGE: {estimated_hours:.2f} hours/month
-CURRENT_RATE: {current_hourly_rate:.4f}/hour
+ESTIMATED_USAGE: {estimated_hours:.2f} hours/month (based on actual usage pattern from billed cost)
+CURRENT_RATE: {current_hourly_rate:.4f}/hour (estimated from instance type)
 
 METRICS:
 - CPU: Avg={cpu_avg:.2f}%, Max={cpu_max:.2f}%, MaxDate={cpu_max_date}
@@ -412,10 +412,11 @@ ALTERNATIVE_INSTANCES:
 
 INSTRUCTIONS:
 1. Analyze all resource data above (metrics, usage patterns, costs)
-2. Determine what recommendations are appropriate based on the data
+2. ESTIMATED_USAGE = {estimated_hours:.2f} hrs/month is calculated from actual billed cost (implied usage pattern)
 3. For each recommendation:
    - First explain WHY (theoretical analysis of metrics and usage patterns)
-   - Then show calculations (mathematical proof with actual instance type names and numbers)
+   - Then show calculations: Use ESTIMATED_USAGE ({estimated_hours:.2f} hrs/month) for all cost projections
+   - Example: Current monthly = CURRENT_RATE × {estimated_hours:.2f}, Alternative monthly = ALT_RATE × {estimated_hours:.2f}
 4. Use actual instance type names (e.g., "{instance_type}", not "current")
 5. Only recommend if it saves money (positive savings). If a recommendation doesn't save money, use saving_pct: 0
 6. Each recommendation must be a DIFFERENT type of action:
