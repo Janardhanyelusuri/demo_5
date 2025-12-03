@@ -246,6 +246,7 @@ def generate_s3_prompt(bucket_data: dict, monthly_forecast: float, annual_foreca
     region = bucket_data.get('region', 'Unknown')
     account_id = bucket_data.get('account_id', 'Unknown')
     billed_cost = bucket_data.get('billed_cost', 0)
+    contracted_unit_price = bucket_data.get('contracted_unit_price', None)  # From FOCUS billing data
 
     start_date = bucket_data.get('start_date', 'N/A')
     end_date = bucket_data.get('end_date', 'N/A')
@@ -341,17 +342,22 @@ def generate_s3_prompt(bucket_data: dict, monthly_forecast: float, annual_foreca
 ISSUE: {'No pricing' if not has_pricing else 'No metrics' if not has_metrics else 'Unknown bucket'}
 OUTPUT: {{"recommendations": {{"effective_recommendation": {{"text": "Cannot recommend", "explanation": "Insufficient data", "saving_pct": 0}}, "additional_recommendation": [], "base_of_recommendations": []}}, "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}}, "anomalies": [], "contract_deal": {{"assessment": "unknown", "for_sku": "S3 Standard", "reason": "Insufficient data", "monthly_saving_pct": 0, "annual_saving_pct": 0}}}}"""
 
+    # Build contracted price info if available
+    contracted_price_info = ""
+    if contracted_unit_price:
+        contracted_price_info = f"\nCONTRACTED_RATE: ${float(contracted_unit_price):.6f}/GB/month (from FOCUS billing data)"
+
     # Prepare full resource data for LLM to analyze
     resource_data_str = f"""BUCKET: {bucket_name} in {region}
 PERIOD: {duration_days} days
-BILLED_COST: {billed_cost:.4f}
-MONTHLY_FORECAST: {monthly_forecast:.2f}
-ANNUAL_FORECAST: {annual_forecast:.2f}
+BILLED_COST: ${billed_cost:.4f}
+MONTHLY_FORECAST: ${monthly_forecast:.2f}
+ANNUAL_FORECAST: ${annual_forecast:.2f}{contracted_price_info}
 
 METRICS:
 {metrics_text}
 
-STORAGE_CLASSES:
+STORAGE_CLASSES (alternatives):
 {pricing_context}
 """
 
@@ -362,9 +368,10 @@ STORAGE_CLASSES:
 INSTRUCTIONS:
 1. Analyze all resource data above (metrics, usage patterns, costs, storage classes)
 2. For storage calculations, use size from METRICS (e.g., "Bucket Size: 150GB"):
-   - Current effective rate: BILLED_COST / size_GB / {duration_days} days × 30 = $/GB/month
+   - If CONTRACTED_RATE is available: use it as current $/GB/month rate
+   - Otherwise calculate effective rate: BILLED_COST / size_GB / {duration_days} days × 30 = $/GB/month
    - Alternative monthly cost: size_GB × alternative_rate_per_GB
-   - Example: If 150GB costs ${billed_cost:.2f} in {duration_days} days, effective rate = ${billed_cost:.4f}/150/{duration_days}×30
+   - Example: If CONTRACTED_RATE = $0.023/GB/month and size = 150GB, current monthly = $0.023 × 150 = $3.45
 3. For each recommendation:
    - First explain WHY (theoretical analysis of metrics and access patterns)
    - Then show calculations (mathematical proof with actual storage class names and numbers)

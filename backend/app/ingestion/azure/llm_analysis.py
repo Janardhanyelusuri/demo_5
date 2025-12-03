@@ -160,6 +160,7 @@ def _generate_storage_prompt(resource_data: dict, start_date: str, end_date: str
     current_tier = resource_data.get("access_tier", "N/A")
     billed_cost = resource_data.get("billed_cost", 0.0)
     duration_days = resource_data.get("duration_days", 30)
+    contracted_unit_price = resource_data.get("contracted_unit_price", None)  # From FOCUS billing data
 
     # Fetch pricing data from database
     schema_name = resource_data.get("schema_name", "")
@@ -251,17 +252,22 @@ def _generate_storage_prompt(resource_data: dict, start_date: str, end_date: str
 ISSUE: {'No pricing' if not has_pricing else 'No metrics' if not has_metrics else 'Unknown SKU'}
 OUTPUT: {{"recommendations": {{"effective_recommendation": {{"text": "Cannot recommend", "explanation": "Insufficient data", "saving_pct": 0}}, "additional_recommendation": [], "base_of_recommendations": []}}, "cost_forecasting": {{"monthly": {monthly_forecast:.2f}, "annually": {annual_forecast:.2f}}}, "anomalies": [], "contract_deal": {{"assessment": "unknown", "for_sku": "{current_sku} {current_tier}", "reason": "Insufficient data", "monthly_saving_pct": 0, "annual_saving_pct": 0}}}}"""
 
+    # Build contracted price info if available
+    contracted_price_info = ""
+    if contracted_unit_price:
+        contracted_price_info = f"\nCONTRACTED_RATE: ${float(contracted_unit_price):.6f}/GB/month (from FOCUS billing data)"
+
     # Prepare full resource data for LLM to analyze
     resource_data_str = f"""RESOURCE: {current_sku} {current_tier} in {region}
 PERIOD: {duration_days} days
-BILLED_COST: {billed_cost:.4f}
-MONTHLY_FORECAST: {monthly_forecast:.2f}
-ANNUAL_FORECAST: {annual_forecast:.2f}
+BILLED_COST: ${billed_cost:.4f}
+MONTHLY_FORECAST: ${monthly_forecast:.2f}
+ANNUAL_FORECAST: ${annual_forecast:.2f}{contracted_price_info}
 
 METRICS:
 {metrics_text}
 
-STORAGE_OPTIONS:
+STORAGE_OPTIONS (alternative tiers/redundancy):
 {pricing_context}
 """
 
@@ -272,9 +278,10 @@ STORAGE_OPTIONS:
 INSTRUCTIONS:
 1. Analyze all resource data above (metrics, usage patterns, costs, storage options)
 2. For storage calculations, use capacity from METRICS (e.g., "Blob Capacity: 150GB"):
-   - Current effective rate: BILLED_COST / capacity_GB / {duration_days} days × 30 = $/GB/month
+   - If CONTRACTED_RATE is available: use it as current $/GB/month rate
+   - Otherwise calculate effective rate: BILLED_COST / capacity_GB / {duration_days} days × 30 = $/GB/month
    - Alternative monthly cost: capacity_GB × alternative_rate_per_GB
-   - Example: If 150GB costs ${billed_cost:.2f} in {duration_days} days, effective rate = ${billed_cost:.4f}/150/{duration_days}×30
+   - Example: If CONTRACTED_RATE = $0.03/GB/month and capacity = 150GB, current monthly = $0.03 × 150 = $4.50
 3. For each recommendation:
    - First explain WHY (theoretical analysis of metrics and usage patterns)
    - Then show calculations (mathematical proof with actual tier/SKU names and numbers)
