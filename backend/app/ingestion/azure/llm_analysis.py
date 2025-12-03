@@ -488,8 +488,8 @@ PERIOD: {duration_days} days
 BILLED_COST: {billed_cost:.4f}
 MONTHLY_FORECAST: {monthly_forecast:.2f}
 ANNUAL_FORECAST: {annual_forecast:.2f}
-ESTIMATED_USAGE: {estimated_hours:.2f} hours/month
-CURRENT_RATE: {current_hourly_rate:.4f}/hour
+ESTIMATED_USAGE: {estimated_hours:.2f} hours/month (based on actual usage pattern from billed cost)
+CURRENT_RATE: {current_hourly_rate:.4f}/hour (pricing table > FOCUS contracted price > estimation)
 
 METRICS:
 {metrics_text}
@@ -504,10 +504,11 @@ ALTERNATIVE_SKUS:
 
 INSTRUCTIONS:
 1. Analyze all resource data above (metrics, usage patterns, costs)
-2. Determine what recommendations are appropriate based on the data
+2. ESTIMATED_USAGE = {estimated_hours:.2f} hrs/month is calculated from actual billed cost (implied usage pattern)
 3. For each recommendation:
    - First explain WHY (theoretical analysis of metrics and usage patterns)
-   - Then show calculations (mathematical proof with actual SKU names and numbers)
+   - Then show calculations: Use ESTIMATED_USAGE ({estimated_hours:.2f} hrs/month) for all cost projections
+   - Example: Current monthly = CURRENT_RATE × {estimated_hours:.2f}, Alternative monthly = ALT_RATE × {estimated_hours:.2f}
 4. Use actual SKU names (e.g., "{current_sku}", not "current")
 5. Only recommend if it saves money (positive savings). If a recommendation doesn't save money, use saving_pct: 0
 6. Each recommendation must be a DIFFERENT type of action:
@@ -727,12 +728,11 @@ def _generate_public_ip_prompt(resource_data: dict, start_date: str, end_date: s
                     rate_source = "fallback estimate"
 
                 # Calculate implied usage hours from billed cost and contracted rate
-                # Public IPs are always allocated 24/7, so this tells us actual hours in the period
                 implied_hours_total = billed_cost / contracted_rate if contracted_rate > 0 else 0
                 hours_per_day = implied_hours_total / duration_days if duration_days > 0 else 24
 
-                # For monthly projection - assume 24/7 operation (Public IPs are always allocated)
-                estimated_hours = 24 * 30.4375  # Monthly hours (24/7)
+                # Use implied hours for monthly projection (like VMs)
+                estimated_hours = hours_per_day * 30.4375  # Project based on actual usage pattern
                 current_hourly_rate = contracted_rate  # Use contracted rate for calculations
 
                 print(f"\n{'='*60}")
@@ -741,7 +741,7 @@ def _generate_public_ip_prompt(resource_data: dict, start_date: str, end_date: s
                 print(f"Billed cost: ${billed_cost:.4f} over {duration_days} days")
                 print(f"Contracted rate: ${contracted_rate:.6f}/hr (from {rate_source})")
                 print(f"Implied usage: {implied_hours_total:.2f} hours total = {hours_per_day:.2f} hrs/day")
-                print(f"Monthly usage estimate: {estimated_hours:.2f} hrs/month (24/7 operation)")
+                print(f"Monthly usage estimate: {estimated_hours:.2f} hrs/month (based on actual usage)")
                 print(f"Monthly cost projection: ${current_hourly_rate * estimated_hours:.4f}")
                 print(f"{'='*60}\n")
 
@@ -803,7 +803,7 @@ ANNUAL_FORECAST: ${annual_forecast:.2f}
 
 CURRENT USAGE:
 CONTRACTED_RATE: ${current_hourly_rate:.6f}/hour (pricing table > FOCUS contracted price > fallback estimate)
-ESTIMATED_USAGE: {estimated_hours:.2f} hours/month (24/7 operation)
+ESTIMATED_USAGE: {estimated_hours:.2f} hours/month (based on actual usage pattern from billed cost)
 MONTHLY_COST: ${current_hourly_rate * estimated_hours:.4f}
 
 METRICS:
@@ -821,7 +821,7 @@ INSTRUCTIONS:
 1. Analyze all resource data above (metrics, usage patterns, costs, IP options)
 2. CONTRACTED_RATE: ${current_hourly_rate:.6f}/hr for current {current_sku} ({allocation_method}) - sourced from pricing table if available, otherwise FOCUS contracted price, or fallback estimate
 3. ALTERNATE_IP_OPTIONS show pricing table rates for different IP SKUs/allocations
-4. Public IPs are charged 24/7 (always allocated). ESTIMATED_USAGE = {estimated_hours:.2f} hrs/month
+4. ESTIMATED_USAGE = {estimated_hours:.2f} hrs/month is calculated from actual billed cost (implied usage pattern)
 5. For each recommendation:
    - First explain WHY (theoretical analysis of metrics and usage patterns)
    - Then show calculations (mathematical proof with actual SKU names and numbers)
