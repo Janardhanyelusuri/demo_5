@@ -353,6 +353,7 @@ def _generate_compute_prompt(resource_data: dict, start_date: str, end_date: str
     billed_cost = resource_data.get("billed_cost", 0.0)
     resource_id = resource_data.get("resource_id", "N/A")
     duration_days = resource_data.get("duration_days", 30)
+    contracted_unit_price = resource_data.get("contracted_unit_price", None)  # From FOCUS billing data
 
     # Fetch pricing data from database
     schema_name = resource_data.get("schema_name", "")
@@ -364,11 +365,31 @@ def _generate_compute_prompt(resource_data: dict, start_date: str, end_date: str
     alternative_pricing = None  # Initialize
 
     # Calculate implied hourly rate to estimate usage hours
-    # Use fallback estimation to get a baseline hourly rate for this SKU type
-    # Then calculate how many hours the resource must have run to generate the billed cost
+    # Priority: 1) Pricing table, 2) Contracted price from FOCUS, 3) Estimation function
     if billed_cost > 0 and duration_days > 0 and current_sku and current_sku != "N/A":
-        # Estimate what this SKU typically costs per hour
-        estimated_market_rate = _estimate_vm_hourly_cost(current_sku)
+        estimated_market_rate = 0
+        rate_source = ""
+
+        # Try 1: Get from pricing table
+        if schema_name:
+            try:
+                from .pricing_helpers import get_vm_current_pricing
+                current_pricing = get_vm_current_pricing(schema_name, current_sku, region)
+                if current_pricing and current_pricing.get('retail_price'):
+                    estimated_market_rate = current_pricing['retail_price']
+                    rate_source = "pricing table"
+            except Exception as e:
+                print(f"Could not fetch VM pricing from table: {e}")
+
+        # Try 2: Use contracted price from FOCUS if pricing table failed
+        if not estimated_market_rate and contracted_unit_price:
+            estimated_market_rate = float(contracted_unit_price)
+            rate_source = "FOCUS billing data (contracted_unit_price)"
+
+        # Try 3: Use estimation function as last resort
+        if not estimated_market_rate:
+            estimated_market_rate = _estimate_vm_hourly_cost(current_sku)
+            rate_source = "estimation function"
 
         # Calculate implied usage hours from actual billed cost
         if estimated_market_rate > 0:
@@ -381,7 +402,7 @@ def _generate_compute_prompt(resource_data: dict, start_date: str, end_date: str
             print(f"USAGE CALCULATION - Azure VM: {current_sku} in {region}")
             print(f"{'='*60}")
             print(f"Billed cost: {billed_cost:.4f} over {duration_days} days")
-            print(f"Estimated market rate: {estimated_market_rate:.4f}/hr")
+            print(f"Estimated market rate: {estimated_market_rate:.4f}/hr (from {rate_source})")
             print(f"Implied usage: {estimated_hours_total:.2f} hours total = {hours_per_day:.2f} hrs/day")
             print(f"Monthly usage estimate: {estimated_hours:.2f} hrs/month")
             print(f"{'='*60}\n")
@@ -670,10 +691,39 @@ def _generate_public_ip_prompt(resource_data: dict, start_date: str, end_date: s
 
             print(f"{'='*60}\n")
 
-            # Calculate usage like VMs: use contracted price from FOCUS billing data
-            if billed_cost > 0 and duration_days > 0 and contracted_unit_price:
-                # Use contracted price from FOCUS billing data (not pricing table)
-                contracted_rate = float(contracted_unit_price)
+            # Calculate usage like VMs: Priority: 1) Pricing table, 2) Contracted price from FOCUS, 3) Fallback estimate
+            if billed_cost > 0 and duration_days > 0:
+                contracted_rate = 0
+                rate_source = ""
+
+                # Try 1: Get from pricing table
+                if ip_pricing:
+                    for opt in ip_pricing:
+                        meter_lower = opt['meter_name'].lower()
+                        sku_lower = current_sku.lower() if current_sku != "N/A" else ""
+                        allocation_lower = allocation_method.lower() if allocation_method != "N/A" else ""
+
+                        # Match based on SKU (Standard/Basic) and allocation method (Static/Dynamic)
+                        if (sku_lower in meter_lower or meter_lower in sku_lower) and \
+                           (allocation_lower in meter_lower or meter_lower in allocation_lower):
+                            contracted_rate = opt['retail_price']
+                            rate_source = "pricing table"
+                            break
+
+                # Try 2: Use contracted price from FOCUS if pricing table failed
+                if not contracted_rate and contracted_unit_price:
+                    contracted_rate = float(contracted_unit_price)
+                    rate_source = "FOCUS billing data (contracted_unit_price)"
+
+                # Try 3: Use fallback defaults if neither worked
+                if not contracted_rate:
+                    if 'standard' in current_sku.lower():
+                        contracted_rate = 0.005
+                    elif 'basic' in current_sku.lower():
+                        contracted_rate = 0.003
+                    else:
+                        contracted_rate = 0.005
+                    rate_source = "fallback estimate"
 
                 # Calculate implied usage hours from billed cost and contracted rate
                 # Public IPs are always allocated 24/7, so this tells us actual hours in the period
@@ -688,7 +738,7 @@ def _generate_public_ip_prompt(resource_data: dict, start_date: str, end_date: s
                 print(f"USAGE CALCULATION - Azure Public IP (like VMs)")
                 print(f"{'='*60}")
                 print(f"Billed cost: ${billed_cost:.4f} over {duration_days} days")
-                print(f"Contracted rate: ${contracted_rate:.6f}/hr (from FOCUS billing data)")
+                print(f"Contracted rate: ${contracted_rate:.6f}/hr (from {rate_source})")
                 print(f"Implied usage: {implied_hours_total:.2f} hours total = {hours_per_day:.2f} hrs/day")
                 print(f"Monthly usage estimate: {estimated_hours:.2f} hrs/month (24/7 operation)")
                 print(f"Monthly cost projection: ${current_hourly_rate * estimated_hours:.4f}")
@@ -751,7 +801,7 @@ MONTHLY_FORECAST: ${monthly_forecast:.2f}
 ANNUAL_FORECAST: ${annual_forecast:.2f}
 
 CURRENT USAGE:
-CONTRACTED_RATE: ${current_hourly_rate:.6f}/hour (from FOCUS billing data)
+CONTRACTED_RATE: ${current_hourly_rate:.6f}/hour (pricing table > FOCUS contracted price > fallback estimate)
 ESTIMATED_USAGE: {estimated_hours:.2f} hours/month (24/7 operation)
 MONTHLY_COST: ${current_hourly_rate * estimated_hours:.4f}
 
@@ -768,7 +818,7 @@ ALTERNATE_IP_OPTIONS (from pricing table):
 
 INSTRUCTIONS:
 1. Analyze all resource data above (metrics, usage patterns, costs, IP options)
-2. CONTRACTED_RATE: ${current_hourly_rate:.6f}/hr is from FOCUS billing data for current {current_sku} ({allocation_method})
+2. CONTRACTED_RATE: ${current_hourly_rate:.6f}/hr for current {current_sku} ({allocation_method}) - sourced from pricing table if available, otherwise FOCUS contracted price, or fallback estimate
 3. ALTERNATE_IP_OPTIONS show pricing table rates for different IP SKUs/allocations
 4. Public IPs are charged 24/7 (always allocated). ESTIMATED_USAGE = {estimated_hours:.2f} hrs/month
 5. For each recommendation:
