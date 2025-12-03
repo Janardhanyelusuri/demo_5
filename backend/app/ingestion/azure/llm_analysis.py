@@ -694,20 +694,22 @@ def _generate_public_ip_prompt(resource_data: dict, start_date: str, end_date: s
                 else:
                     current_hourly_rate = 0.005  # Default to Standard
 
-                # Calculate implied usage hours
-                if current_hourly_rate > 0:
-                    estimated_hours_total = billed_cost / current_hourly_rate
-                    hours_per_day = estimated_hours_total / duration_days
-                    estimated_hours = hours_per_day * 30.4375  # Monthly hours
+                # For Public IPs, assume 24/7 operation (they're always allocated)
+                # Unlike VMs which may be stopped/started, Public IPs are continuously charged
+                estimated_hours = 24 * 30.4375  # 730.5 hours/month (24/7)
 
-                    print(f"\n{'='*60}")
-                    print(f"USAGE CALCULATION - Azure Public IP")
-                    print(f"{'='*60}")
-                    print(f"Billed cost: {billed_cost:.4f} over {duration_days} days")
-                    print(f"Current hourly rate: {current_hourly_rate:.6f}/hr")
-                    print(f"Implied usage: {estimated_hours_total:.2f} hours total = {hours_per_day:.2f} hrs/day")
-                    print(f"Monthly usage estimate: {estimated_hours:.2f} hrs/month")
-                    print(f"{'='*60}\n")
+                # Calculate theoretical monthly cost based on hourly rate
+                theoretical_monthly_cost = current_hourly_rate * estimated_hours
+
+                print(f"\n{'='*60}")
+                print(f"USAGE CALCULATION - Azure Public IP")
+                print(f"{'='*60}")
+                print(f"Billed cost: {billed_cost:.4f} over {duration_days} days")
+                print(f"Current hourly rate: {current_hourly_rate:.6f}/hr")
+                print(f"Assumed usage: 24/7 = {estimated_hours:.2f} hrs/month")
+                print(f"Theoretical monthly cost: {theoretical_monthly_cost:.4f}")
+                print(f"Note: Billed cost may differ due to bandwidth/egress charges")
+                print(f"{'='*60}\n")
 
             # Format pricing for LLM
             pricing_context = format_ip_pricing_for_llm(ip_pricing)
@@ -780,11 +782,12 @@ PUBLIC_IP_OPTIONS:
 
 INSTRUCTIONS:
 1. Analyze all resource data above (metrics, usage patterns, costs, IP options)
-2. Use the CURRENT_HOURLY_RATE ({current_hourly_rate:.6f}/hour) and ESTIMATED_USAGE ({estimated_hours:.2f} hours/month) in your calculations
+2. Public IPs are charged 24/7 (always allocated). Use ESTIMATED_USAGE = {estimated_hours:.2f} hrs/month (24/7 operation)
 3. For each recommendation:
    - First explain WHY (theoretical analysis of metrics and usage patterns)
-   - Then show calculations using: NEW_HOURLY_RATE × ESTIMATED_USAGE for monthly cost
-   - Example: If recommending Basic Static at $0.00360/hr: Cost = 0.00360 × {estimated_hours:.2f} = $X/month
+   - Then show calculations using: NEW_HOURLY_RATE × {estimated_hours:.2f} hours for monthly cost
+   - Example: If recommending Basic Static at $0.00360/hr: Cost = 0.00360 × {estimated_hours:.2f} = ${0.00360 * estimated_hours:.4f}/month
+   - Current monthly cost = {current_hourly_rate:.6f} × {estimated_hours:.2f} = ${current_hourly_rate * estimated_hours:.4f}
 4. Use actual SKU/allocation names (e.g., "{current_sku} ({allocation_method})", not "current")
 5. Only recommend if it saves money (positive savings). If a recommendation doesn't save money, use saving_pct: 0
 6. Each recommendation must be a DIFFERENT type of action (deallocate, change allocation method, reserved IP, DDoS protection, SKU change - NOT multiple variations of same action)
