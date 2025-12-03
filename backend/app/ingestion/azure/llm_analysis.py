@@ -669,46 +669,25 @@ def _generate_public_ip_prompt(resource_data: dict, start_date: str, end_date: s
 
             print(f"{'='*60}\n")
 
-            # Calculate current hourly rate and implied usage hours (like VMs do)
-            if billed_cost > 0 and duration_days > 0 and ip_pricing:
-                # Try to find current SKU in pricing options
-                current_price_match = None
-                for opt in ip_pricing:
-                    meter_lower = opt['meter_name'].lower()
-                    sku_lower = current_sku.lower() if current_sku != "N/A" else ""
-                    allocation_lower = allocation_method.lower() if allocation_method != "N/A" else ""
+            # Calculate actual effective hourly rate from usage data (not from pricing table)
+            if billed_cost > 0 and duration_days > 0:
+                # Public IPs are always allocated 24/7 (never stopped)
+                hours_in_period = duration_days * 24  # Actual hours in billing period
 
-                    # Match based on SKU (Standard/Basic) and allocation method (Static/Dynamic)
-                    if (sku_lower in meter_lower or meter_lower in sku_lower) and \
-                       (allocation_lower in meter_lower or meter_lower in allocation_lower):
-                        current_price_match = opt
-                        break
+                # Calculate the ACTUAL effective hourly rate (includes IP + bandwidth + all charges)
+                current_hourly_rate = billed_cost / hours_in_period
 
-                # If exact match found, use it; otherwise estimate based on SKU tier
-                if current_price_match:
-                    current_hourly_rate = current_price_match['retail_price']
-                elif 'standard' in current_sku.lower():
-                    current_hourly_rate = 0.005  # Standard default
-                elif 'basic' in current_sku.lower():
-                    current_hourly_rate = 0.003  # Basic default
-                else:
-                    current_hourly_rate = 0.005  # Default to Standard
-
-                # For Public IPs, assume 24/7 operation (they're always allocated)
-                # Unlike VMs which may be stopped/started, Public IPs are continuously charged
+                # Extrapolate to monthly estimate (24/7 operation)
                 estimated_hours = 24 * 30.4375  # 730.5 hours/month (24/7)
-
-                # Calculate theoretical monthly cost based on hourly rate
-                theoretical_monthly_cost = current_hourly_rate * estimated_hours
 
                 print(f"\n{'='*60}")
                 print(f"USAGE CALCULATION - Azure Public IP")
                 print(f"{'='*60}")
                 print(f"Billed cost: {billed_cost:.4f} over {duration_days} days")
-                print(f"Current hourly rate: {current_hourly_rate:.6f}/hr")
-                print(f"Assumed usage: 24/7 = {estimated_hours:.2f} hrs/month")
-                print(f"Theoretical monthly cost: {theoretical_monthly_cost:.4f}")
-                print(f"Note: Billed cost may differ due to bandwidth/egress charges")
+                print(f"Hours in period: {hours_in_period:.2f} hrs ({duration_days} days × 24 hrs/day)")
+                print(f"ACTUAL effective hourly rate: {current_hourly_rate:.6f}/hr (includes all charges)")
+                print(f"Monthly usage (24/7): {estimated_hours:.2f} hrs/month")
+                print(f"Current monthly cost: {current_hourly_rate * estimated_hours:.4f}")
                 print(f"{'='*60}\n")
 
             # Format pricing for LLM
@@ -782,18 +761,21 @@ PUBLIC_IP_OPTIONS:
 
 INSTRUCTIONS:
 1. Analyze all resource data above (metrics, usage patterns, costs, IP options)
-2. Public IPs are charged 24/7 (always allocated). Use ESTIMATED_USAGE = {estimated_hours:.2f} hrs/month (24/7 operation)
-3. For each recommendation:
+2. IMPORTANT - Current hourly rate ({current_hourly_rate:.6f}/hr) is calculated from ACTUAL USAGE and includes ALL charges (IP reservation + bandwidth + egress + regional fees)
+3. PUBLIC_IP_OPTIONS show only the IP reservation cost (hourly rate for IP address only, without bandwidth)
+4. Public IPs are charged 24/7 (always allocated). ESTIMATED_USAGE = {estimated_hours:.2f} hrs/month
+5. For each recommendation:
    - First explain WHY (theoretical analysis of metrics and usage patterns)
-   - Then show calculations using: NEW_HOURLY_RATE × {estimated_hours:.2f} hours for monthly cost
-   - Example: If recommending Basic Static at $0.00360/hr: Cost = 0.00360 × {estimated_hours:.2f} = ${0.00360 * estimated_hours:.4f}/month
-   - Current monthly cost = {current_hourly_rate:.6f} × {estimated_hours:.2f} = ${current_hourly_rate * estimated_hours:.4f}
-4. Use actual SKU/allocation names (e.g., "{current_sku} ({allocation_method})", not "current")
-5. Only recommend if it saves money (positive savings). If a recommendation doesn't save money, use saving_pct: 0
-6. Each recommendation must be a DIFFERENT type of action (deallocate, change allocation method, reserved IP, DDoS protection, SKU change - NOT multiple variations of same action)
-7. For base_of_recommendations: select the metrics YOU used to make your decision - MUST include metric name AND value (e.g., "ByteCount: 1.5GB", "TCP Bytes Forwarded DDoS: 0.0GB")
-8. For contract_deal: analyze if reserved IP makes sense for THIS usage pattern (Static and always allocated = good, Dynamic or frequently deallocated = bad)
-9. CRITICAL: saving_pct MUST ALWAYS be a NUMBER (integer or decimal), NEVER a string like "unknown". Use 0 if savings cannot be calculated.
+   - Calculate IP reservation cost: NEW_IP_HOURLY_RATE × {estimated_hours:.2f} = new IP cost
+   - Estimate bandwidth charges from current: ({current_hourly_rate:.6f} - pricing_table_current_rate) × {estimated_hours:.2f} = bandwidth cost
+   - Total new cost = new IP cost + bandwidth cost
+   - Compare to current: {current_hourly_rate * estimated_hours:.4f}
+6. Use actual SKU/allocation names (e.g., "{current_sku} ({allocation_method})", not "current")
+7. Only recommend if it saves money (positive savings). If a recommendation doesn't save money, use saving_pct: 0
+8. Each recommendation must be a DIFFERENT type of action (deallocate, change allocation method, reserved IP, DDoS protection, SKU change - NOT multiple variations of same action)
+9. For base_of_recommendations: select the metrics YOU used to make your decision - MUST include metric name AND value (e.g., "ByteCount: 1.5GB", "TCP Bytes Forwarded DDoS: 0.0GB")
+10. For contract_deal: analyze if reserved IP makes sense for THIS usage pattern (Static and always allocated = good, Dynamic or frequently deallocated = bad)
+11. CRITICAL: saving_pct MUST ALWAYS be a NUMBER (integer or decimal), NEVER a string like "unknown". Use 0 if savings cannot be calculated.
 
 OUTPUT (JSON):
 {{
