@@ -669,24 +669,47 @@ def _generate_public_ip_prompt(resource_data: dict, start_date: str, end_date: s
 
             print(f"{'='*60}\n")
 
-            # Calculate current hourly rate from billed cost (like VMs)
-            if billed_cost > 0 and duration_days > 0:
-                # Public IPs are always allocated 24/7
-                hours_in_period = duration_days * 24
-                estimated_hours = 24 * 30.4375  # Monthly hours (24/7)
+            # Calculate usage like VMs: use contracted price from pricing table, then calculate implied hours
+            if billed_cost > 0 and duration_days > 0 and ip_pricing:
+                # Find current IP's contracted/retail price from pricing table
+                contracted_rate = None
+                for opt in ip_pricing:
+                    meter_lower = opt['meter_name'].lower()
+                    sku_lower = current_sku.lower() if current_sku != "N/A" else ""
+                    allocation_lower = allocation_method.lower() if allocation_method != "N/A" else ""
 
-                # Calculate current hourly rate from ACTUAL BILLED COST (includes IP + bandwidth + all charges)
-                current_hourly_rate = billed_cost / hours_in_period
+                    # Match based on SKU (Standard/Basic) and allocation method (Static/Dynamic)
+                    if (sku_lower in meter_lower or meter_lower in sku_lower) and \
+                       (allocation_lower in meter_lower or meter_lower in allocation_lower):
+                        contracted_rate = opt['retail_price']
+                        break
+
+                # Fallback to defaults if not found in pricing table
+                if not contracted_rate:
+                    if 'standard' in current_sku.lower():
+                        contracted_rate = 0.005
+                    elif 'basic' in current_sku.lower():
+                        contracted_rate = 0.003
+                    else:
+                        contracted_rate = 0.005
+
+                # Calculate implied usage hours from billed cost and contracted rate
+                # Public IPs are always allocated 24/7, so this tells us actual hours in the period
+                implied_hours_total = billed_cost / contracted_rate if contracted_rate > 0 else 0
+                hours_per_day = implied_hours_total / duration_days if duration_days > 0 else 24
+
+                # For monthly projection - assume 24/7 operation (Public IPs are always allocated)
+                estimated_hours = 24 * 30.4375  # Monthly hours (24/7)
+                current_hourly_rate = contracted_rate  # Use contracted rate for calculations
 
                 print(f"\n{'='*60}")
-                print(f"USAGE CALCULATION - Azure Public IP")
+                print(f"USAGE CALCULATION - Azure Public IP (like VMs)")
                 print(f"{'='*60}")
                 print(f"Billed cost: ${billed_cost:.4f} over {duration_days} days")
-                print(f"Hours in period: {hours_in_period:.2f} hrs ({duration_days} days × 24 hrs/day)")
-                print(f"Current hourly rate: ${current_hourly_rate:.6f}/hr (from actual usage)")
-                print(f"\nMonthly projection (24/7 operation):")
-                print(f"  Hours per month: {estimated_hours:.2f}")
-                print(f"  Monthly cost: ${current_hourly_rate * estimated_hours:.4f}")
+                print(f"Contracted rate: ${contracted_rate:.6f}/hr (from pricing table for {current_sku} {allocation_method})")
+                print(f"Implied usage: {implied_hours_total:.2f} hours total = {hours_per_day:.2f} hrs/day")
+                print(f"Monthly usage estimate: {estimated_hours:.2f} hrs/month (24/7 operation)")
+                print(f"Monthly cost projection: ${current_hourly_rate * estimated_hours:.4f}")
                 print(f"{'='*60}\n")
 
             # Format pricing for LLM
@@ -745,8 +768,8 @@ BILLED_COST: ${billed_cost:.4f}
 MONTHLY_FORECAST: ${monthly_forecast:.2f}
 ANNUAL_FORECAST: ${annual_forecast:.2f}
 
-CURRENT USAGE (calculated from billed cost):
-HOURLY_RATE: ${current_hourly_rate:.6f}/hour (includes IP + bandwidth + egress + all charges)
+CURRENT USAGE:
+CONTRACTED_RATE: ${current_hourly_rate:.6f}/hour (from pricing table)
 ESTIMATED_USAGE: {estimated_hours:.2f} hours/month (24/7 operation)
 MONTHLY_COST: ${current_hourly_rate * estimated_hours:.4f}
 
@@ -763,15 +786,14 @@ ALTERNATE_IP_OPTIONS (from pricing table):
 
 INSTRUCTIONS:
 1. Analyze all resource data above (metrics, usage patterns, costs, IP options)
-2. CURRENT HOURLY RATE: ${current_hourly_rate:.6f}/hr is calculated from ACTUAL BILLED COST and includes ALL charges (IP reservation + bandwidth + egress + regional fees + everything)
-3. ALTERNATE_IP_OPTIONS show pricing table rates for different IP SKUs/allocations - these are base IP rates and may not include bandwidth/egress charges
+2. CONTRACTED_RATE: ${current_hourly_rate:.6f}/hr is from the pricing table for current {current_sku} ({allocation_method})
+3. ALTERNATE_IP_OPTIONS show pricing table rates for different IP SKUs/allocations
 4. Public IPs are charged 24/7 (always allocated). ESTIMATED_USAGE = {estimated_hours:.2f} hrs/month
 5. For each recommendation:
    - First explain WHY (theoretical analysis of metrics and usage patterns)
-   - Compare current rate (${current_hourly_rate:.6f}/hr) to alternate rates from ALTERNATE_IP_OPTIONS
+   - Compare current contracted rate (${current_hourly_rate:.6f}/hr) to alternate rates from ALTERNATE_IP_OPTIONS
    - Calculate monthly savings: (current_rate - alternate_rate) × {estimated_hours:.2f}
    - Current monthly cost = ${current_hourly_rate * estimated_hours:.4f}
-   - Be conservative: Alternate rates from pricing table may not include bandwidth, so actual savings may be less
    - Calculate saving percentage = (savings / current_monthly_cost) × 100
 6. Use actual SKU/allocation names (e.g., "{current_sku} ({allocation_method})", not "current")
 7. Only recommend if it saves money (positive savings). If a recommendation doesn't save money, use saving_pct: 0
