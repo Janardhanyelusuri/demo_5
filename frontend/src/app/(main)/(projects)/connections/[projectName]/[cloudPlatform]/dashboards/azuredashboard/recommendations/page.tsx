@@ -2,11 +2,12 @@
 
 "use client";
 
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { useParams } from "next/navigation";
 import { NormalizedRecommendation, RecommendationFilters, AZURE_RESOURCES } from "@/types/recommendations";
 import { fetchRecommendationsWithFilters } from "@/lib/recommendations";
 import axiosInstance, { BACKEND } from "@/lib/api";
+import { calculateDateRange } from "@/lib/dateUtils";
 
 // NEW SHARED COMPONENT IMPORTS
 import RecommendationFilterBar from "@/components/recommendations/RecommendationFilterBar";
@@ -168,13 +169,16 @@ const AzureRecommendationsPage: React.FC = () => {
     }
 
     // Clear UI AFTER cancel request completes
+    const defaultPreset = 'last_month';
+    const dateRange = calculateDateRange(defaultPreset);
+
     setFilters({
       resourceType: resourceOptions[0]?.displayName || '',
       resourceId: undefined,
       resourceIdEnabled: false,
-      dateRangePreset: 'last_month',
-      startDate: undefined,
-      endDate: undefined,
+      dateRangePreset: defaultPreset,
+      startDate: dateRange?.startDate,
+      endDate: dateRange?.endDate,
     });
 
     setRecommendations([]);
@@ -184,6 +188,19 @@ const AzureRecommendationsPage: React.FC = () => {
 
     console.log(`✅ Reset complete - UI cleared, generation ${generationRef.current}`);
   };
+
+  // Initialize dates on component mount based on default preset
+  useEffect(() => {
+    const dateRange = calculateDateRange(filters.dateRangePreset);
+    if (dateRange && !filters.startDate && !filters.endDate) {
+      setFilters(prev => ({
+        ...prev,
+        startDate: dateRange.startDate,
+        endDate: dateRange.endDate
+      }));
+      console.log(`📅 Initialized dates for preset '${filters.dateRangePreset}': ${dateRange.startDate.toISOString().split('T')[0]} to ${dateRange.endDate.toISOString().split('T')[0]}`);
+    }
+  }, []); // Run only on mount
 
   return (
     <div className="p-4">
