@@ -22,7 +22,7 @@ LOG = logging.getLogger("ec2_metrics_scraper")
 
 # Config
 THREADS = 10
-LOOKBACK_DAYS = 14  # How many days of metrics to fetch
+LOOKBACK_DAYS = 30  # How many days of metrics to fetch
 
 # EC2 metrics we want to collect
 EC2_METRICS = [

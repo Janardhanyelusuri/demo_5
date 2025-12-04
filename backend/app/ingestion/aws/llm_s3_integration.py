@@ -452,8 +452,8 @@ def get_s3_recommendation_single(bucket_data: dict) -> dict:
 # --- run_llm_analysis_s3 (No change needed here, it uses the fetch function) ---
 
 def run_llm_analysis_s3(schema_name, start_date=None, end_date=None, bucket_name=None):
-  
-    start_str = start_date or (datetime.utcnow().date() - timedelta(days=7)).strftime("%Y-%m-%d")
+
+    start_str = start_date or (datetime.utcnow().date() - timedelta(days=30)).strftime("%Y-%m-%d")
     end_str = end_date or datetime.utcnow().date().strftime("%Y-%m-%d")
 
     LOG.info(f"🚀 Starting S3 LLM analysis from {start_str} to {end_str}...")
