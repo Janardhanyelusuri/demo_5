@@ -505,7 +505,7 @@ def run_llm_analysis_ec2(resource_type: str, schema_name: str,
         List of recommendation dictionaries
     """
 
-    start_str = start_date.strftime("%Y-%m-%d") if start_date else (datetime.utcnow().date() - timedelta(days=7)).strftime("%Y-%m-%d")
+    start_str = start_date.strftime("%Y-%m-%d") if start_date else (datetime.utcnow().date() - timedelta(days=30)).strftime("%Y-%m-%d")
     end_str = end_date.strftime("%Y-%m-%d") if end_date else datetime.utcnow().date().strftime("%Y-%m-%d")
 
     LOG.info(f"🚀 Starting EC2 LLM analysis from {start_str} to {end_str}...")

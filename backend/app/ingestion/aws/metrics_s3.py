@@ -121,7 +121,7 @@ def fetch_latest_datapoint(aws_access_key, aws_secret_key, bucket_name, region, 
         sess = session_for_region(aws_access_key, aws_secret_key, region)
         cw = sess.client("cloudwatch", region_name=region)
         now = datetime.now(timezone.utc)
-        start = now - timedelta(days=3)
+        start = now - timedelta(days=30)
         period = 3600
 
         dimensions = metric.get("Dimensions", [])
