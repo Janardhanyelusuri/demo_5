@@ -2,11 +2,12 @@
 
 "use client";
 
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { useParams } from "next/navigation";
 import { NormalizedRecommendation, RecommendationFilters, AWS_RESOURCES } from "@/types/recommendations";
 import { fetchRecommendationsWithFilters } from "@/lib/recommendations";
 import { BACKEND } from "@/lib/api";
+import { calculateDateRange } from "@/lib/dateUtils";
 
 // SHARED COMPONENT IMPORTS
 import RecommendationFilterBar from "@/components/recommendations/RecommendationFilterBar";
@@ -38,10 +39,21 @@ const AwsRecommendationsPage: React.FC = () => {
   });
 
   // Cancel backend task (non-blocking) - matches Azure implementation
-  const cancelBackendTask = (projectId: string) => {
-    const cancelUrl = `${BACKEND}/cancel-tasks/${projectId}`;
+  const cancelBackendTask = async (projectIdToCancel: string) => {
+    const cancelUrl = `${BACKEND}/cancel-tasks/${projectIdToCancel}`;
+    console.log(`🔄 [NO-AUTH] Starting FAST cancel request to: ${cancelUrl}`);
+
+    // Try multiple methods to ensure the request gets through
+
+    // Method 1: navigator.sendBeacon (most reliable for fire-and-forget)
+    if (typeof navigator.sendBeacon === 'function') {
+      const sent = navigator.sendBeacon(cancelUrl);
+      console.log(`📡 [NO-AUTH] sendBeacon result: ${sent}`);
+    }
+
+    // Method 2: fetch as backup (with detailed logging)
     try {
-      console.log(`🔄 [DEBUG] About to call fetch() to cancel task...`);
+      console.log(`🔄 [DEBUG] About to call fetch()...`);
       fetch(cancelUrl, {
         method: 'POST',
       }).then(response => {
@@ -95,20 +107,28 @@ const AwsRecommendationsPage: React.FC = () => {
       const result = await fetchRecommendationsWithFilters(
         projectId,
         cloudPlatform,
-        filters
+        filters,
+        undefined // No abort signal needed
       );
 
-      // Check if this generation is still current
+      // CRITICAL: Only process if this is still the current generation
       if (generationRef.current !== thisGeneration) {
-        console.log(`⚠️ [RESET-AWS] Discarding stale response from generation ${thisGeneration} (current: ${generationRef.current})`);
+        console.log(`⚠️  Ignoring response from old generation ${thisGeneration} (current: ${generationRef.current})`);
         return;
       }
 
+      // Store task_id for cleanup
+      if (result.taskId) {
+        currentTaskIdRef.current = result.taskId;
+        console.log(`📋 Task started: ${result.taskId}`);
+      }
+
       setRecommendations(result.recommendations);
+      console.log(`✅ Analysis complete (generation ${thisGeneration}): ${result.recommendations.length} recommendations`);
     } catch (err) {
-      // Check if this generation is still current before showing error
+      // Only show errors for current generation
       if (generationRef.current !== thisGeneration) {
-        console.log(`⚠️ [RESET-AWS] Discarding stale error from generation ${thisGeneration}`);
+        console.log(`⚠️  Ignoring error from old generation ${thisGeneration}`);
         return;
       }
 
@@ -118,7 +138,7 @@ const AwsRecommendationsPage: React.FC = () => {
         setError("An unknown error occurred while fetching recommendations.");
       }
     } finally {
-      // Only clear loading if this is still the current generation
+      // Only clear loading if still current generation
       if (generationRef.current === thisGeneration) {
         setIsLoading(false);
       }
@@ -142,20 +162,35 @@ const AwsRecommendationsPage: React.FC = () => {
     }
 
     // Clear UI AFTER cancel request completes
+    const defaultPreset = 'last_week';
+    const dateRange = calculateDateRange(defaultPreset);
+
     setFilters({
       resourceType: resourceOptions[0]?.displayName || '',
       resourceId: '',
       resourceIdEnabled: false,
-      startDate: undefined,
-      endDate: undefined,
-      dateRangePreset: 'last_week'
+      startDate: dateRange?.startDate,
+      endDate: dateRange?.endDate,
+      dateRangePreset: defaultPreset
     });
     setRecommendations([]);
     setError(null);
+
+    console.log(`✅ Reset complete - UI cleared, generation ${generationRef.current}`);
   };
 
-  // FIX: Removed the useEffect hook that caused the default load on mount.
-  // The user must now click "Run Analysis" to fetch data.
+  // Initialize dates on component mount based on default preset
+  useEffect(() => {
+    const dateRange = calculateDateRange(filters.dateRangePreset);
+    if (dateRange && !filters.startDate && !filters.endDate) {
+      setFilters(prev => ({
+        ...prev,
+        startDate: dateRange.startDate,
+        endDate: dateRange.endDate
+      }));
+      console.log(`📅 Initialized dates for preset '${filters.dateRangePreset}': ${dateRange.startDate.toISOString().split('T')[0]} to ${dateRange.endDate.toISOString().split('T')[0]}`);
+    }
+  }, []); // Run only on mount
 
   return (
     <div className="p-8">
