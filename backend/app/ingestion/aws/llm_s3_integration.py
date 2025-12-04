@@ -21,6 +21,7 @@ from app.ingestion.aws.pricing_helpers import (
     get_s3_storage_class_pricing,
     format_s3_pricing_for_llm
 )
+from app.core.task_manager import task_manager  # For cancellation support
 from sqlalchemy import create_engine
 from urllib.parse import quote_plus
 from dotenv import load_dotenv
@@ -451,8 +452,13 @@ def get_s3_recommendation_single(bucket_data: dict) -> dict:
 
 # --- run_llm_analysis_s3 (No change needed here, it uses the fetch function) ---
 
-def run_llm_analysis_s3(schema_name, start_date=None, end_date=None, bucket_name=None):
+def run_llm_analysis_s3(schema_name, start_date=None, end_date=None, bucket_name=None, task_id=None):
+    """
+    Run LLM analysis for S3 buckets with cancellation support.
 
+    Args:
+        task_id: Optional task ID for cancellation support
+    """
     start_str = start_date or (datetime.utcnow().date() - timedelta(days=30)).strftime("%Y-%m-%d")
     end_str = end_date or datetime.utcnow().date().strftime("%Y-%m-%d")
 
@@ -484,11 +490,25 @@ def run_llm_analysis_s3(schema_name, start_date=None, end_date=None, bucket_name
 
     # Convert to list-of-dicts for LLM helper
     buckets = df.to_dict(orient="records")
+    total_buckets = len(buckets)
 
     LOG.info("🤖 Calling LLM for S3 recommendations...")
     recommendations = []
 
-    for bucket_data in buckets:
+    for idx, bucket_data in enumerate(buckets):
+        # Check if task has been cancelled
+        if task_id:
+            is_cancelled = task_manager.is_cancelled(task_id)
+            if is_cancelled:
+                LOG.info(f"🛑 Task {task_id} was cancelled. Stopping S3 analysis. Processed {len(recommendations)}/{total_buckets}")
+                break
+            # Debug: Confirm task is still active
+            if idx == 0 or idx % 10 == 0:  # Log every 10th iteration
+                LOG.info(f"  🔍 Task {task_id[:8]}... still running, not cancelled (bucket {idx + 1}/{total_buckets})")
+
+        bucket_name_current = bucket_data.get('bucket_name', 'Unknown')
+        LOG.info(f"  [{idx + 1}/{total_buckets}] Processing bucket: {bucket_name_current}")
+
         # Add schema_name and region for pricing lookups
         bucket_data['schema_name'] = schema_name
         bucket_data['region'] = bucket_data.get('region', 'us-east-1')

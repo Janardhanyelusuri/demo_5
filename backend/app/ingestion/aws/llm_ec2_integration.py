@@ -25,6 +25,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../.
 from app.core.genai import llm_call
 from app.ingestion.aws.postgres_operations import connection
 from app.ingestion.azure.llm_json_extractor import extract_json
+from app.core.task_manager import task_manager  # For cancellation support
 # Import pricing helpers for dynamic pricing context
 from app.ingestion.aws.pricing_helpers import (
     get_ec2_current_pricing,
@@ -490,9 +491,10 @@ def get_ec2_recommendation_single(instance_data: Dict[str, Any]) -> Optional[Dic
 def run_llm_analysis_ec2(resource_type: str, schema_name: str,
                          start_date: Optional[datetime] = None,
                          end_date: Optional[datetime] = None,
-                         resource_id: Optional[str] = None) -> List[Dict[str, Any]]:
+                         resource_id: Optional[str] = None,
+                         task_id: Optional[str] = None) -> List[Dict[str, Any]]:
     """
-    Main entry point for EC2 LLM analysis.
+    Main entry point for EC2 LLM analysis with cancellation support.
 
     Args:
         resource_type: Should be 'ec2'
@@ -500,6 +502,7 @@ def run_llm_analysis_ec2(resource_type: str, schema_name: str,
         start_date: Start date for analysis
         end_date: End date for analysis
         resource_id: Optional specific instance ID
+        task_id: Optional task ID for cancellation support
 
     Returns:
         List of recommendation dictionaries
@@ -532,11 +535,25 @@ def run_llm_analysis_ec2(resource_type: str, schema_name: str,
 
     # Convert to list of dicts
     instances = df.to_dict(orient="records")
+    total_instances = len(instances)
 
     LOG.info("🤖 Calling LLM for EC2 recommendations...")
     recommendations = []
 
-    for instance_data in instances:
+    for idx, instance_data in enumerate(instances):
+        # Check if task has been cancelled
+        if task_id:
+            is_cancelled = task_manager.is_cancelled(task_id)
+            if is_cancelled:
+                LOG.info(f"🛑 Task {task_id} was cancelled. Stopping EC2 analysis. Processed {len(recommendations)}/{total_instances}")
+                break
+            # Debug: Confirm task is still active
+            if idx == 0 or idx % 10 == 0:  # Log every 10th iteration
+                LOG.info(f"  🔍 Task {task_id[:8]}... still running, not cancelled (instance {idx + 1}/{total_instances})")
+
+        instance_id = instance_data.get('resource_id', 'Unknown')
+        LOG.info(f"  [{idx + 1}/{total_instances}] Processing instance: {instance_id}")
+
         # Add schema_name and region for pricing lookups
         instance_data['schema_name'] = schema_name
         instance_data['region'] = instance_data.get('region', 'us-east-1')

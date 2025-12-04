@@ -149,7 +149,8 @@ async def llm_aws(
                     schema_name=schema,
                     start_date=payload.start_date,
                     end_date=payload.end_date,
-                    bucket_name=payload.resource_id
+                    bucket_name=payload.resource_id,
+                    task_id=task_id
                 )
             elif resource_type_lower == 'ec2':
                 result = run_llm_analysis_ec2(
@@ -157,7 +158,8 @@ async def llm_aws(
                     schema_name=schema,
                     start_date=payload.start_date,
                     end_date=payload.end_date,
-                    resource_id=payload.resource_id
+                    resource_id=payload.resource_id,
+                    task_id=task_id
                 )
             else:
                 raise HTTPException(
