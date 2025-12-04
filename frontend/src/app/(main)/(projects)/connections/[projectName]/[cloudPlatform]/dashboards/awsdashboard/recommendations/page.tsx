@@ -38,7 +38,7 @@ const AwsRecommendationsPage: React.FC = () => {
 
   // Cancel backend task (non-blocking)
   const cancelBackendTask = (projectId: string) => {
-    const cancelUrl = `/api/v1/llm/cancel_task/${projectId}`;
+    const cancelUrl = `/api/v1/llm/projects/${projectId}/cancel-tasks`;
     try {
       console.log(`🔄 [DEBUG] About to call fetch() to cancel task...`);
       fetch(cancelUrl, {
