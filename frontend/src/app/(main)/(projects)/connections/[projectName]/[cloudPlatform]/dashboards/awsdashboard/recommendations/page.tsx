@@ -6,6 +6,7 @@ import React, { useState, useRef } from "react";
 import { useParams } from "next/navigation";
 import { NormalizedRecommendation, RecommendationFilters, AWS_RESOURCES } from "@/types/recommendations";
 import { fetchRecommendationsWithFilters } from "@/lib/recommendations";
+import { BACKEND } from "@/lib/api";
 
 // SHARED COMPONENT IMPORTS
 import RecommendationFilterBar from "@/components/recommendations/RecommendationFilterBar";
@@ -36,9 +37,9 @@ const AwsRecommendationsPage: React.FC = () => {
     dateRangePreset: 'last_week'
   });
 
-  // Cancel backend task (non-blocking)
+  // Cancel backend task (non-blocking) - matches Azure implementation
   const cancelBackendTask = (projectId: string) => {
-    const cancelUrl = `/api/v1/llm/projects/${projectId}/cancel-tasks`;
+    const cancelUrl = `${BACKEND}/cancel-tasks/${projectId}`;
     try {
       console.log(`🔄 [DEBUG] About to call fetch() to cancel task...`);
       fetch(cancelUrl, {
