@@ -27,12 +27,14 @@ from app.ingestion.aws.llm_ec2_integration import run_llm_analysis as run_llm_an
 
 def calculate_date_ranges() -> Dict[str, Tuple[datetime, datetime]]:
     """
-    Calculate all standard date ranges matching frontend date-fns logic.
+    Calculate all standard date ranges using UTC to match frontend.
+    This ensures cache key consistency across timezones.
 
     Returns:
         Dictionary mapping preset names to (start_date, end_date) tuples
     """
-    now = datetime.now()
+    # Use UTC to avoid timezone inconsistencies
+    now = datetime.utcnow()
     today = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
     date_ranges = {
