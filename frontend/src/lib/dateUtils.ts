@@ -8,53 +8,67 @@ export interface DateRange {
 }
 
 /**
- * Get current UTC date at midnight (00:00:00)
+ * Get current IST date at midnight (00:00:00)
+ * IST is UTC+5:30 (Indian Standard Time)
  * This ensures consistency with backend calculations
  */
-function getTodayUTC(): Date {
+function getTodayIST(): Date {
     const now = new Date();
-    return new Date(Date.UTC(
+    // Convert to IST by adding 5 hours and 30 minutes to UTC
+    const utcTime = Date.UTC(
         now.getUTCFullYear(),
         now.getUTCMonth(),
         now.getUTCDate(),
+        now.getUTCHours(),
+        now.getUTCMinutes(),
+        0, 0
+    );
+    const istTime = utcTime + (5 * 60 * 60 * 1000) + (30 * 60 * 1000); // +5:30
+    const istDate = new Date(istTime);
+
+    // Set to midnight IST
+    return new Date(Date.UTC(
+        istDate.getUTCFullYear(),
+        istDate.getUTCMonth(),
+        istDate.getUTCDate(),
         0, 0, 0, 0
     ));
 }
 
 /**
- * Subtract days from a UTC date
+ * Subtract days from an IST date
  */
-function subtractDaysUTC(date: Date, days: number): Date {
+function subtractDaysIST(date: Date, days: number): Date {
     const result = new Date(date);
     result.setUTCDate(result.getUTCDate() - days);
     return result;
 }
 
 /**
- * Subtract months from a UTC date
+ * Subtract months from an IST date
  */
-function subtractMonthsUTC(date: Date, months: number): Date {
+function subtractMonthsIST(date: Date, months: number): Date {
     const result = new Date(date);
     result.setUTCMonth(result.getUTCMonth() - months);
     return result;
 }
 
 /**
- * Subtract years from a UTC date
+ * Subtract years from an IST date
  */
-function subtractYearsUTC(date: Date, years: number): Date {
+function subtractYearsIST(date: Date, years: number): Date {
     const result = new Date(date);
     result.setUTCFullYear(result.getUTCFullYear() - years);
     return result;
 }
 
 /**
- * Calculate date range based on preset option using UTC
- * All ranges are calculated relative to current UTC date
+ * Calculate date range based on preset option using IST
+ * All ranges are calculated relative to current IST date
  * This ensures cache key consistency with backend pre-warming
  */
 export function calculateDateRange(preset: DateRangePreset): DateRange | null {
-    const today = getTodayUTC();
+    const today = getTodayIST();
 
     switch (preset) {
         case 'today':
@@ -64,7 +78,7 @@ export function calculateDateRange(preset: DateRangePreset): DateRange | null {
             };
 
         case 'yesterday':
-            const yesterday = subtractDaysUTC(today, 1);
+            const yesterday = subtractDaysIST(today, 1);
             return {
                 startDate: yesterday,
                 endDate: yesterday
@@ -72,25 +86,25 @@ export function calculateDateRange(preset: DateRangePreset): DateRange | null {
 
         case 'last_week':
             return {
-                startDate: subtractDaysUTC(today, 7),
+                startDate: subtractDaysIST(today, 7),
                 endDate: today
             };
 
         case 'last_month':
             return {
-                startDate: subtractMonthsUTC(today, 1),
+                startDate: subtractMonthsIST(today, 1),
                 endDate: today
             };
 
         case 'last_6_months':
             return {
-                startDate: subtractMonthsUTC(today, 6),
+                startDate: subtractMonthsIST(today, 6),
                 endDate: today
             };
 
         case 'last_year':
             return {
-                startDate: subtractYearsUTC(today, 1),
+                startDate: subtractYearsIST(today, 1),
                 endDate: today
             };
 
