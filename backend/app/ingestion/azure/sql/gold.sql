@@ -39,17 +39,52 @@ SELECT DISTINCT
 FROM __schema__.silver_azure_focus;
 
 
--- METRICS DIM TABLE (NEW)
+-- =========================================================================
+-- CONSOLIDATED METRICS VIEWS (VM, Storage, Public IP)
+-- =========================================================================
+
+-- METRICS DIM VIEW (Consolidated)
 CREATE OR REPLACE VIEW __schema__.gold_azure_metric_dim AS
 SELECT DISTINCT
     metric_name,
     unit,
-    displaydescription,
-    namespace
-FROM __schema__.silver_azure_vm_metrics
-WHERE metric_name IS NOT NULL;
+    namespace,
+    resource_type
+FROM __schema__.silver_azure_metrics
+WHERE metric_name IS NOT NULL
+ORDER BY resource_type, metric_name;
 
--- METRICS FACT TABLE (NEW)
+-- CONSOLIDATED METRICS FACT VIEW (All resource types)
+CREATE OR REPLACE VIEW __schema__.gold_azure_fact_metrics AS
+SELECT
+    resource_id,
+    resource_name,
+    resource_type,
+    resource_group,
+    subscription_id,
+    observation_timestamp AS timestamp,
+    observation_date,
+    metric_name,
+    metric_value AS value,
+    unit,
+    namespace,
+    resourceregion,
+    instance_type,
+    sku,
+    access_tier,
+    replication_type,
+    kind,
+    storage_status,
+    cost,
+    ip_address,
+    ip_version,
+    tier,
+    allocation_method,
+    provisioning_state
+FROM __schema__.silver_azure_metrics
+WHERE resource_id IS NOT NULL;
+
+-- VM METRICS FACT VIEW (Backward compatibility)
 CREATE OR REPLACE VIEW __schema__.gold_azure_fact_vm_metrics AS
 SELECT
     resource_id,
@@ -59,12 +94,12 @@ SELECT
     metric_name,
     value,
     unit,
-    vm_name,
+    resource_name AS vm_name,
     instance_type,
     namespace,
     resourceregion
-FROM __schema__.silver_azure_vm_metrics
-WHERE resource_id IS NOT NULL;
+FROM __schema__.gold_azure_fact_metrics
+WHERE resource_type = 'vm';
 -- fact
 CREATE OR REPLACE VIEW __schema__.gold_azure_fact_cost AS
 SELECT 

@@ -317,35 +317,40 @@ def fetch_azure_ip_pricing(region: str = "eastus", currency: str = "USD") -> pd.
 @connection
 def store_azure_pricing(conn, schema_name: str, pricing_df: pd.DataFrame, pricing_type: str):
     """
-    Store Azure pricing data in PostgreSQL.
+    Store Azure pricing data in PostgreSQL consolidated table.
 
     Args:
         conn: Database connection
         schema_name: Schema name
         pricing_df: DataFrame with pricing data
-        pricing_type: Type of pricing (vm, storage, disk, ip)
+        pricing_type: Type of pricing (vm, storage, disk, publicip)
     """
     if pricing_df.empty:
         print(f"  ⚠️ No {pricing_type} pricing data to store")
         return
 
-    table_name = f"azure_pricing_{pricing_type}"
+    # Add resource_type column
+    df_with_type = pricing_df.copy()
+    df_with_type['resource_type'] = pricing_type
 
-    # Truncate and reload (pricing data should be refreshed completely)
-    truncate_query = f"TRUNCATE TABLE {schema_name}.{table_name}"
+    # Use consolidated table name
+    table_name = "azure_pricing"
+
+    # Delete existing records for this resource type before inserting new ones
+    delete_query = f"DELETE FROM {schema_name}.{table_name} WHERE resource_type = %s"
 
     try:
         cursor = conn.cursor()
-        cursor.execute(truncate_query)
+        cursor.execute(delete_query, (pricing_type,))
         conn.commit()
-        print(f"  🗑️ Cleared existing {pricing_type} pricing data")
+        print(f"  🗑️ Cleared existing {pricing_type} pricing data from consolidated table")
     except Exception as e:
-        print(f"  ⚠️ Table {table_name} may not exist yet: {e}")
+        print(f"  ⚠️ Could not clear existing {pricing_type} data: {e}")
         conn.rollback()
 
-    # Insert new data
-    dump_to_postgresql(pricing_df, schema_name, table_name)
-    print(f"  💾 Stored {len(pricing_df)} {pricing_type} pricing records in {schema_name}.{table_name}")
+    # Insert new data into consolidated table
+    dump_to_postgresql(df_with_type, schema_name, table_name)
+    print(f"  💾 Stored {len(df_with_type)} {pricing_type} pricing records in {schema_name}.{table_name}")
 
 
 def fetch_and_store_all_azure_pricing(schema_name: str, region: str = "eastus", currency: str = "USD"):
@@ -420,8 +425,9 @@ def get_vm_sku_pricing(schema_name: str, sku_name: str, region: str = "eastus") 
                 currency_code,
                 unit_of_measure,
                 meter_name
-            FROM {schema}.azure_pricing_vm
-            WHERE LOWER(sku_name) = LOWER(%s)
+            FROM {schema}.azure_pricing
+            WHERE resource_type = 'vm'
+              AND LOWER(sku_name) = LOWER(%s)
               AND LOWER(arm_region_name) = LOWER(%s)
             LIMIT 1
         """

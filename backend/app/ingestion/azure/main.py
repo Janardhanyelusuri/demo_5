@@ -40,12 +40,16 @@ def azure_main(project_name,
     print(f'schema {schema_name} created')
     run_sql_file(f'{base_path}/sql/create_table.sql', schema_name, budget)
     print(f'Table {table_name} created')
+    # Create bronze metrics tables for all resource types
     run_sql_file(f'{base_path}/sql/bronze_metrics.sql', schema_name, budget)
+    run_sql_file(f'{base_path}/sql/bronze_storage_metrics.sql', schema_name, budget)
+    run_sql_file(f'{base_path}/sql/bronze_public_ip_metrics.sql', schema_name, budget)
     run_sql_file(f'{base_path}/sql/genai_response.sql', schema_name, budget)
+    print(f'Bronze metrics tables created')
 
-    # Create pricing tables
-    run_sql_file(f'{base_path}/sql/pricing_tables.sql', schema_name, budget)
-    print(f'Pricing tables created')
+    # Create consolidated pricing table
+    run_sql_file(f'{base_path}/sql/pricing_tables_consolidated.sql', schema_name, budget)
+    print(f'Consolidated pricing table created')
 
     # Fetch and store Azure pricing data (early in pipeline for LLM use)
     try:
@@ -69,34 +73,37 @@ def azure_main(project_name,
         dump_to_postgresql(new_data, schema_name, table_name)
         print(f'New records appended to PostgreSQL')
 
-    # Run SQL files for silver and gold stages
+    # Run SQL files for billing silver and gold stages
     run_sql_file(f'{base_path}/sql/silver.sql', schema_name, budget)
-    
-    # Step 6: 🔁 Call dump_metrics() to fetch Azure VM metrics and dump
-    metrics_dump(tenant_id, client_id, client_secret,subscription_id, schema_name,"bronze_azure_vm_metrics")
-    
-    run_sql_file(f'{base_path}/sql/silver_metrics.sql', schema_name, budget)
-    run_sql_file(f'{base_path}/sql/gold.sql', schema_name, budget)
 
-    # run_llm_vm(schema_name)
-    print(f"LLM response generated")
+    # Fetch metrics from Azure Monitor for all resource types
+    print(f"\n📊 Fetching metrics from Azure Monitor...")
 
-    run_sql_file(f'{base_path}/sql/bronze_storage_metrics.sql', schema_name, budget)
+    # VM Metrics
+    print(f"  • Fetching VM metrics...")
+    metrics_dump(tenant_id, client_id, client_secret, subscription_id, schema_name, "bronze_azure_vm_metrics")
+
+    # Storage Metrics
+    print(f"  • Fetching Storage Account metrics...")
     storage_metrics_dump(tenant_id, client_id, client_secret, subscription_id,
                         schema_name, "bronze_azure_storage_account_metrics")
-    
-    run_sql_file(f'{base_path}/sql/silver_storage_metrics.sql', schema_name, budget)
 
-    run_sql_file(f'{base_path}/sql/gold_storage_metrics.sql', schema_name, budget)
-
-    run_sql_file(f'{base_path}/sql/bronze_public_ip_metrics.sql', schema_name, budget)
-
+    # Public IP Metrics
+    print(f"  • Fetching Public IP metrics...")
     public_ip_metrics_dump(tenant_id, client_id, client_secret, subscription_id,
                            schema_name, "bronze_azure_public_ip_metrics")
-    
-    run_sql_file(f'{base_path}/sql/silver_public_ip_metrics.sql', schema_name, budget)
 
-    run_sql_file(f'{base_path}/sql/gold_public_ip_metrics.sql', schema_name, budget)
+    print(f"✅ All metrics fetched from Azure Monitor")
+
+    # Process consolidated silver metrics (all resource types)
+    print(f"\n🔄 Processing consolidated silver metrics...")
+    run_sql_file(f'{base_path}/sql/silver_metrics_consolidated.sql', schema_name, budget)
+    print(f"✅ Consolidated silver metrics processed")
+
+    # Create gold layer views (includes both billing and consolidated metrics)
+    print(f"\n✨ Creating gold layer views...")
+    run_sql_file(f'{base_path}/sql/gold.sql', schema_name, budget)
+    print(f"✅ Gold layer views created (billing + metrics)")
 
     # Pre-warm LLM recommendations cache for all resources and date ranges
     print(f"\n🔥 Starting recommendation cache pre-warming...")
