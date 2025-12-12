@@ -2,6 +2,14 @@
 -- Single table to store pricing information for all AWS resource types
 
 -- =========================================================================
+-- DROP OLD TABLES (if they exist from previous schema)
+-- =========================================================================
+
+DROP TABLE IF EXISTS __schema__.aws_pricing_ec2 CASCADE;
+DROP TABLE IF EXISTS __schema__.aws_pricing_s3 CASCADE;
+DROP TABLE IF EXISTS __schema__.aws_pricing_ebs CASCADE;
+
+-- =========================================================================
 -- CONSOLIDATED PRICING TABLE
 -- =========================================================================
 

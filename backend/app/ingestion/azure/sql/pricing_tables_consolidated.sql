@@ -2,6 +2,15 @@
 -- Single table to store pricing information for all Azure resource types
 
 -- =========================================================================
+-- DROP OLD TABLES (if they exist from previous schema)
+-- =========================================================================
+
+DROP TABLE IF EXISTS __schema__.azure_pricing_vm CASCADE;
+DROP TABLE IF EXISTS __schema__.azure_pricing_storage CASCADE;
+DROP TABLE IF EXISTS __schema__.azure_pricing_disk CASCADE;
+DROP TABLE IF EXISTS __schema__.azure_pricing_ip CASCADE;
+
+-- =========================================================================
 -- CONSOLIDATED PRICING TABLE
 -- =========================================================================
 
