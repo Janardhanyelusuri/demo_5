@@ -147,9 +147,9 @@ def aws_run_ingestion(project_name,
             execute_sql_files(sql_file_paths['create_table'], schema_name, monthly_budget)
             print(f'Table {table_name} created....')
 
-            # Create pricing tables
-            execute_sql_files(f'{base_path}/sql/pricing_tables.sql', schema_name, monthly_budget)
-            print(f'Pricing tables created....')
+            # Create consolidated pricing tables
+            execute_sql_files(f'{base_path}/sql/pricing_tables_consolidated.sql', schema_name, monthly_budget)
+            print(f'Consolidated pricing tables created....')
 
             # Fetch and store AWS pricing data (early in pipeline for LLM use)
             try:
@@ -316,17 +316,34 @@ def aws_run_ingestion(project_name,
                         print(f"Parquet gold views created....")
                 else:
                     print(f"No new data to append for file: {latest_file}")
-        # S3 Metrics Ingestion
+        # Create bronze metrics tables
+        print(f"\n📊 Creating bronze metrics tables...")
         execute_sql_files(f'{base_path}/sql/bronze_s3_metrics.sql', schema_name, monthly_budget)
-        metrics_dump_s3(aws_access_key, aws_secret_key, aws_region, schema_name)
-        execute_sql_files(f'{base_path}/sql/silver_s3_metrics.sql', schema_name, monthly_budget)
-        execute_sql_files(f'{base_path}/sql/gold_s3_metrics.sql', schema_name, monthly_budget)
-
-        # EC2 Metrics Ingestion
         execute_sql_files(f'{base_path}/sql/bronze_ec2_metrics.sql', schema_name, monthly_budget)
+        print(f"✅ Bronze metrics tables created")
+
+        # Fetch metrics from CloudWatch for all resource types
+        print(f"\n📊 Fetching metrics from CloudWatch...")
+
+        # S3 Metrics
+        print(f"  • Fetching S3 metrics...")
+        metrics_dump_s3(aws_access_key, aws_secret_key, aws_region, schema_name)
+
+        # EC2 Metrics
+        print(f"  • Fetching EC2 metrics...")
         metrics_dump_ec2(aws_access_key, aws_secret_key, aws_region, schema_name)
-        execute_sql_files(f'{base_path}/sql/silver_ec2_metrics.sql', schema_name, monthly_budget)
-        execute_sql_files(f'{base_path}/sql/gold_ec2_metrics.sql', schema_name, monthly_budget)
+
+        print(f"✅ All metrics fetched from CloudWatch")
+
+        # Process consolidated silver metrics (all resource types)
+        print(f"\n🔄 Processing consolidated silver metrics...")
+        execute_sql_files(f'{base_path}/sql/silver_metrics_consolidated.sql', schema_name, monthly_budget)
+        print(f"✅ Consolidated silver metrics processed")
+
+        # Create consolidated metrics gold views
+        print(f"\n✨ Creating consolidated metrics gold views...")
+        execute_sql_files(f'{base_path}/sql/gold_metrics_consolidated.sql', schema_name, monthly_budget)
+        print(f"✅ Consolidated metrics gold views created")
 
         # Pre-warm LLM recommendations cache for all resources and date ranges
         print(f"\n🔥 Starting recommendation cache pre-warming...")
