@@ -119,8 +119,9 @@ def fetch_vm_utilization_data(conn, schema_name, start_date, end_date, resource_
                 metric_name,
                 value::FLOAT AS metric_value,
                 "timestamp"
-            FROM {schema_name}.gold_azure_fact_vm_metrics
+            FROM {schema_name}.gold_azure_fact_metrics
             WHERE resource_id IS NOT NULL
+              AND resource_type = 'vm'
               AND "timestamp" >= %(start_date)s::timestamp
               AND "timestamp" <= (%(end_date)s::timestamp + INTERVAL '1 day' - INTERVAL '1 second')
               AND metric_name IS NOT NULL
@@ -128,14 +129,15 @@ def fetch_vm_utilization_data(conn, schema_name, start_date, end_date, resource_
               {metrics_filter_sql}
         ),
 
-        -- ✅ NEW CTE: Get VM-specific details (name, instance type) from the metrics fact
+        -- ✅ NEW CTE: Get VM-specific details (name, instance type) from the consolidated metrics fact
         vm_details AS (
             SELECT DISTINCT ON (LOWER(resource_id))
                 LOWER(resource_id) AS resource_id,
-                vm_name,
+                resource_name AS vm_name,
                 instance_type -- This is the VM SKU
-            FROM {schema_name}.gold_azure_fact_vm_metrics
+            FROM {schema_name}.gold_azure_fact_metrics
             WHERE resource_id IS NOT NULL
+              AND resource_type = 'vm'
             {metrics_cte_filter_sql}
         ),
 
@@ -394,22 +396,18 @@ def fetch_storage_account_utilization_data(
     query = f"""
             WITH fact_base AS (
         SELECT
-            fsd.storage_account_key,
-            LOWER(sa.resource_id) AS resource_id,
-            dm.metric_name,
-            fsd.date_key,
-            fsd.daily_value_avg,
-            fsd.daily_value_max,
-            fsd.daily_cost_sum
-        FROM {schema_name}.fact_storage_daily_usage fsd
-        JOIN {schema_name}.dim_storage_account sa
-            ON fsd.storage_account_key = sa.storage_account_key
-        JOIN {schema_name}.dim_metric dm
-            ON fsd.metric_key = dm.metric_key
-        WHERE fsd.date_key IS NOT NULL
-        AND to_date(fsd.date_key::text, 'YYYYMMDD')
-                BETWEEN %(start_date)s::date AND %(end_date)s::date
+            LOWER(resource_id) AS resource_id,
+            metric_name,
+            observation_date::date AS observation_date,
+            AVG(metric_value) AS daily_value_avg,
+            MAX(metric_value) AS daily_value_max,
+            SUM(cost) AS daily_cost_sum
+        FROM {schema_name}.silver_azure_metrics
+        WHERE resource_type = 'storage'
+        AND observation_date IS NOT NULL
+        AND observation_date::date BETWEEN %(start_date)s::date AND %(end_date)s::date
         {resource_filter_sql}
+        GROUP BY resource_id, metric_name, observation_date
     ),
 
     metric_avg_max AS (
@@ -439,9 +437,9 @@ def fetch_storage_account_utilization_data(
         SELECT DISTINCT ON (resource_id, metric_name)
             resource_id,
             metric_name,
-            date_key AS max_date_key
+            observation_date AS max_date
         FROM fact_base
-        ORDER BY resource_id, metric_name, daily_value_max DESC, date_key DESC
+        ORDER BY resource_id, metric_name, daily_value_max DESC, observation_date DESC
     ),
 
     metric_final AS (
@@ -450,9 +448,9 @@ def fetch_storage_account_utilization_data(
             amm.metric_name,
             amm.avg_value,
             amm.max_value,
-            mmd.max_date_key
+            mmd.max_date
         FROM metric_avg_max amm
-        JOIN metric_max_date mmd 
+        JOIN metric_max_date mmd
             ON amm.resource_id = mmd.resource_id
         AND amm.metric_name = mmd.metric_name
     ),
@@ -464,7 +462,7 @@ def fetch_storage_account_utilization_data(
                 json_object_agg(metric_name || '_Avg', ROUND(avg_value::NUMERIC, 6))::jsonb ||
                 json_object_agg(metric_name || '_Max', ROUND(max_value::NUMERIC, 6))::jsonb ||
                 json_object_agg(metric_name || '_MaxDate',
-                    TO_CHAR(to_date(max_date_key::text, 'YYYYMMDD'), 'YYYY-MM-DD'))::jsonb
+                    TO_CHAR(max_date, 'YYYY-MM-DD'))::jsonb
             )::json AS metrics_json
         FROM metric_final
         GROUP BY resource_id
@@ -504,21 +502,23 @@ def fetch_storage_account_utilization_data(
     ),
 
     resource_dim AS (
-        SELECT
+        SELECT DISTINCT ON (LOWER(resource_id))
             LOWER(resource_id) AS resource_id,
-            storage_account_name,
-            region,
+            resource_name AS storage_account_name,
+            resourceregion AS region,
             kind,
             sku,
             access_tier
-        FROM {schema_name}.dim_storage_account
-        WHERE 1=1
+        FROM {schema_name}.silver_azure_metrics
+        WHERE resource_type = 'storage'
+            AND resource_id IS NOT NULL
             -- Only include main storage accounts, exclude subservices
             AND LOWER(resource_id) NOT LIKE '%%/blobservices/%%'
             AND LOWER(resource_id) NOT LIKE '%%/fileservices/%%'
             AND LOWER(resource_id) NOT LIKE '%%/queueservices/%%'
             AND LOWER(resource_id) NOT LIKE '%%/tableservices/%%'
             {resource_filter_dim.replace('WHERE', 'AND') if resource_filter_dim else ''}
+        ORDER BY LOWER(resource_id), processed_at DESC
     )
 
     SELECT
@@ -845,21 +845,17 @@ def fetch_public_ip_utilization_data(
     query = f"""
         WITH fact_base AS (
             SELECT
-                fpi.public_ip_key,
-                LOWER(pip.resource_id) AS resource_id,
-                dm.metric_name,
-                fpi.date_key,
-                fpi.daily_value_avg,
-                fpi.daily_value_max
-            FROM {schema_name}.fact_public_ip_daily_usage fpi
-            JOIN {schema_name}.dim_public_ip pip
-                ON fpi.public_ip_key = pip.public_ip_key
-            JOIN {schema_name}.dim_metric dm
-                ON fpi.metric_key = dm.metric_key
-            WHERE fpi.date_key IS NOT NULL
-            AND to_date(fpi.date_key::text, 'YYYYMMDD')
-                    BETWEEN %(start_date)s::date AND %(end_date)s::date
+                LOWER(resource_id) AS resource_id,
+                metric_name,
+                observation_date::date AS observation_date,
+                AVG(metric_value) AS daily_value_avg,
+                MAX(metric_value) AS daily_value_max
+            FROM {schema_name}.silver_azure_metrics
+            WHERE resource_type = 'publicip'
+            AND observation_date IS NOT NULL
+            AND observation_date::date BETWEEN %(start_date)s::date AND %(end_date)s::date
             {resource_filter_sql}
+            GROUP BY resource_id, metric_name, observation_date
         ),
 
         metric_avg_max AS (
@@ -889,9 +885,9 @@ def fetch_public_ip_utilization_data(
             SELECT DISTINCT ON (resource_id, metric_name)
                 resource_id,
                 metric_name,
-                date_key AS max_date_key
+                observation_date AS max_date
             FROM fact_base
-            ORDER BY resource_id, metric_name, daily_value_max DESC, date_key DESC
+            ORDER BY resource_id, metric_name, daily_value_max DESC, observation_date DESC
         ),
 
         metric_final AS (
@@ -900,9 +896,9 @@ def fetch_public_ip_utilization_data(
                 amm.metric_name,
                 amm.avg_value,
                 amm.max_value,
-                mmd.max_date_key
+                mmd.max_date
             FROM metric_avg_max amm
-            JOIN metric_max_date mmd 
+            JOIN metric_max_date mmd
                 ON amm.resource_id = mmd.resource_id
             AND amm.metric_name = mmd.metric_name
         ),
@@ -914,7 +910,7 @@ def fetch_public_ip_utilization_data(
                     json_object_agg(metric_name || '_Avg', ROUND(avg_value::NUMERIC, 6))::jsonb ||
                     json_object_agg(metric_name || '_Max', ROUND(max_value::NUMERIC, 6))::jsonb ||
                     json_object_agg(metric_name || '_MaxDate',
-                        TO_CHAR(to_date(max_date_key::text, 'YYYYMMDD'), 'YYYY-MM-DD'))::jsonb
+                        TO_CHAR(max_date, 'YYYY-MM-DD'))::jsonb
                 )::json AS metrics_json
             FROM metric_final
             GROUP BY resource_id
@@ -937,17 +933,20 @@ def fetch_public_ip_utilization_data(
         ),
 
         resource_dim AS (
-            SELECT
+            SELECT DISTINCT ON (LOWER(resource_id))
                 LOWER(resource_id) AS resource_id,
-                public_ip_name,
-                region,
+                resource_name AS public_ip_name,
+                resourceregion AS region,
                 ip_address,
                 ip_version,
                 sku,
                 tier,
                 allocation_method
-            FROM {schema_name}.dim_public_ip
-            {resource_filter_dim}
+            FROM {schema_name}.silver_azure_metrics
+            WHERE resource_type = 'publicip'
+                AND resource_id IS NOT NULL
+                {resource_filter_dim.replace('WHERE', 'AND') if resource_filter_dim else ''}
+            ORDER BY LOWER(resource_id), processed_at DESC
         )
 
         SELECT
