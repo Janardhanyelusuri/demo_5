@@ -3,6 +3,16 @@
 -- This file creates unified dimension and fact views for VM, Storage, and Public IP metrics
 
 -- =========================================================================
+-- DROP OLD VIEWS (if they exist with different schemas)
+-- =========================================================================
+-- Drop old views to allow column changes (e.g., displaydescription -> namespace)
+DROP VIEW IF EXISTS __schema__.gold_azure_metric_dim CASCADE;
+DROP VIEW IF EXISTS __schema__.gold_azure_fact_vm_metrics CASCADE;
+DROP VIEW IF EXISTS __schema__.gold_azure_fact_metrics CASCADE;
+DROP VIEW IF EXISTS __schema__.gold_azure_fact_storage_metrics CASCADE;
+DROP VIEW IF EXISTS __schema__.gold_azure_fact_publicip_metrics CASCADE;
+
+-- =========================================================================
 -- GOLD LAYER: METRIC DIMENSION VIEW
 -- =========================================================================
 -- Contains unique metrics across all resource types
