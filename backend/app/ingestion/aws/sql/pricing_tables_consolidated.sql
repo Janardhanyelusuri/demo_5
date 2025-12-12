@@ -2,8 +2,12 @@
 -- Single table to store pricing information for all AWS resource types
 
 -- =========================================================================
--- DROP OLD TABLES (if they exist from previous schema)
+-- DROP OLD SEPARATE TABLES (One-time migration from old schema)
 -- =========================================================================
+-- These DROP statements only affect the OLD separate tables from the previous schema.
+-- After the first run, these become views and won't be affected by DROP TABLE.
+-- The consolidated table (aws_pricing) is never dropped - it persists across runs.
+-- Data refresh is handled by pricing.py which deletes by resource_type before inserting.
 
 DROP TABLE IF EXISTS __schema__.aws_pricing_ec2 CASCADE;
 DROP TABLE IF EXISTS __schema__.aws_pricing_s3 CASCADE;
