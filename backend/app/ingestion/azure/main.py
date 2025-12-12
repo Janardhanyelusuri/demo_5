@@ -100,10 +100,16 @@ def azure_main(project_name,
     run_sql_file(f'{base_path}/sql/silver_metrics_consolidated.sql', schema_name, budget)
     print(f"✅ Consolidated silver metrics processed")
 
-    # Create gold layer views (includes both billing and consolidated metrics)
+    # Create gold layer views
     print(f"\n✨ Creating gold layer views...")
+
+    # Billing gold views
     run_sql_file(f'{base_path}/sql/gold.sql', schema_name, budget)
-    print(f"✅ Gold layer views created (billing + metrics)")
+    print(f"✅ Gold billing views created")
+
+    # Consolidated metrics gold views
+    run_sql_file(f'{base_path}/sql/gold_metrics_consolidated.sql', schema_name, budget)
+    print(f"✅ Gold metrics views created")
 
     # Pre-warm LLM recommendations cache for all resources and date ranges
     print(f"\n🔥 Starting recommendation cache pre-warming...")
