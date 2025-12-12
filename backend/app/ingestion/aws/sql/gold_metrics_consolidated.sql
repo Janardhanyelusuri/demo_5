@@ -3,6 +3,15 @@
 -- This file creates unified dimension and fact views for EC2 and S3 metrics
 
 -- =========================================================================
+-- DROP OLD VIEWS (if they exist with different schemas)
+-- =========================================================================
+-- Drop old views to allow schema changes during migration
+DROP VIEW IF EXISTS __schema__.gold_aws_metric_dim CASCADE;
+DROP VIEW IF EXISTS __schema__.gold_ec2_fact_metrics CASCADE;
+DROP VIEW IF EXISTS __schema__.gold_aws_fact_metrics CASCADE;
+DROP VIEW IF EXISTS __schema__.gold_s3_fact_metrics CASCADE;
+
+-- =========================================================================
 -- GOLD LAYER: METRIC DIMENSION VIEW
 -- =========================================================================
 -- Contains unique metrics across all resource types
