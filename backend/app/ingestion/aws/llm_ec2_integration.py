@@ -574,9 +574,10 @@ def run_llm_analysis_ec2(resource_type: str, schema_name: str,
 # Wrapper function for backward compatibility
 def run_llm_analysis(resource_type: str, schema_name: str,
                      start_date: str, end_date: str,
-                     resource_id: Optional[str] = None):
+                     resource_id: Optional[str] = None,
+                     task_id: Optional[str] = None):
     """
     Main entry point for EC2 LLM analysis.
     Wrapper function that calls run_llm_analysis_ec2.
     """
-    return run_llm_analysis_ec2(resource_type, schema_name, start_date, end_date, resource_id)
+    return run_llm_analysis_ec2(resource_type, schema_name, start_date, end_date, resource_id, task_id)
