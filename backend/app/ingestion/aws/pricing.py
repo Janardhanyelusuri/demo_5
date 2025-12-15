@@ -356,7 +356,7 @@ def fetch_ebs_pricing(aws_access_key: str, aws_secret_key: str, region: str = "u
 @connection
 def store_aws_pricing(conn, schema_name: str, pricing_df: pd.DataFrame, pricing_type: str):
     """
-    Store AWS pricing data in PostgreSQL.
+    Store AWS pricing data in PostgreSQL consolidated table.
 
     Args:
         conn: Database connection
@@ -368,23 +368,28 @@ def store_aws_pricing(conn, schema_name: str, pricing_df: pd.DataFrame, pricing_
         print(f"  ⚠️ No {pricing_type} pricing data to store")
         return
 
-    table_name = f"aws_pricing_{pricing_type}"
+    # Add resource_type column
+    df_with_type = pricing_df.copy()
+    df_with_type['resource_type'] = pricing_type
 
-    # Truncate and reload (pricing data should be refreshed completely)
-    truncate_query = f"TRUNCATE TABLE {schema_name}.{table_name}"
+    # Use consolidated table name
+    table_name = "aws_pricing"
+
+    # Delete existing records for this resource type before inserting new ones
+    delete_query = f"DELETE FROM {schema_name}.{table_name} WHERE resource_type = %s"
 
     try:
         cursor = conn.cursor()
-        cursor.execute(truncate_query)
+        cursor.execute(delete_query, (pricing_type,))
         conn.commit()
-        print(f"  🗑️ Cleared existing {pricing_type} pricing data")
+        print(f"  🗑️ Cleared existing {pricing_type} pricing data from consolidated table")
     except Exception as e:
-        print(f"  ⚠️ Table {table_name} may not exist yet: {e}")
+        print(f"  ⚠️ Could not clear existing {pricing_type} data: {e}")
         conn.rollback()
 
-    # Insert new data
-    dump_to_postgresql(pricing_df, schema_name, table_name)
-    print(f"  💾 Stored {len(pricing_df)} {pricing_type} pricing records in {schema_name}.{table_name}")
+    # Insert new data into consolidated table
+    dump_to_postgresql(df_with_type, schema_name, table_name)
+    print(f"  💾 Stored {len(df_with_type)} {pricing_type} pricing records in {schema_name}.{table_name}")
 
 
 def fetch_and_store_all_aws_pricing(
