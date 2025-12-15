@@ -57,23 +57,23 @@ def fetch_ec2_utilization_data(conn, schema_name, start_date, end_date, instance
         DataFrame with EC2 instance utilization and cost data
     """
 
-    instance_filter_sql = sql.SQL("AND LOWER(m.instance_id) = LOWER(%s)") if instance_id else sql.SQL("")
+    instance_filter_sql = sql.SQL("AND LOWER(m.resource_id) = LOWER(%s)") if instance_id else sql.SQL("")
 
     QUERY = sql.SQL("""
         WITH metric_agg AS (
             SELECT
-                m.instance_id,
-                m.instance_name,
-                i.instance_type,
+                m.resource_id AS instance_id,
+                m.resource_name AS instance_name,
+                m.instance_type,
                 m.region,
                 m.account_id,
                 m.metric_name,
                 m.value AS metric_value,
                 m.timestamp
-            FROM {schema_name}.fact_ec2_metrics m
-            LEFT JOIN {schema_name}.dim_ec2_instance i ON m.instance_id = i.instance_id
+            FROM {schema_name}.gold_aws_fact_metrics m
             WHERE
-                m.timestamp BETWEEN %s AND %s
+                m.resource_type = 'ec2'
+                AND m.timestamp BETWEEN %s AND %s
                 {instance_filter}
         ),
 
