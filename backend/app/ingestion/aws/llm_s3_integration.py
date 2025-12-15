@@ -40,23 +40,22 @@ def fetch_s3_bucket_utilization_data(conn, schema_name, start_date, end_date, bu
     """
     
     # Use parameterized query components
-    bucket_filter_sql = sql.SQL("AND bm.bucket_name = %s") if bucket_name else sql.SQL("")
+    bucket_filter_sql = sql.SQL("AND m.resource_id = %s") if bucket_name else sql.SQL("")
 
     # NOTE: The query now uses three CTEs to properly calculate aggregates and max date
     QUERY = sql.SQL("""
         WITH metric_agg AS (
             SELECT
-                bm.bucket_name,
-                bm.account_id,
-                db.region,
-                bm.metric_name,
-                bm.value AS metric_value,
-                bm.event_date
-            FROM {schema_name}.fact_s3_metrics bm
-            LEFT JOIN {schema_name}.dim_s3_bucket db
-                ON bm.bucket_name = db.bucket_name
+                m.resource_id AS bucket_name,
+                m.account_id,
+                m.region,
+                m.metric_name,
+                m.value AS metric_value,
+                m.event_date
+            FROM {schema_name}.gold_aws_fact_metrics m
             WHERE
-                bm.event_date BETWEEN %s AND %s
+                m.resource_type = 's3'
+                AND m.event_date BETWEEN %s AND %s
                 {bucket_filter}
         ),
 
