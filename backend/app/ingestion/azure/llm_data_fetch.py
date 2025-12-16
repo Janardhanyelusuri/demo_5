@@ -399,12 +399,11 @@ def fetch_storage_account_utilization_data(
             LOWER(resource_id) AS resource_id,
             metric_name,
             observation_date::date AS observation_date,
-            AVG(metric_value) AS daily_value_avg,
-            MAX(metric_value) AS daily_value_max,
+            AVG(value) AS daily_value_avg,
+            MAX(value) AS daily_value_max,
             SUM(cost) AS daily_cost_sum
-        FROM {schema_name}.silver_azure_metrics
-        WHERE resource_type = 'storage'
-        AND observation_date IS NOT NULL
+        FROM {schema_name}.gold_azure_fact_storage_metrics
+        WHERE observation_date IS NOT NULL
         AND observation_date::date BETWEEN %(start_date)s::date AND %(end_date)s::date
         {resource_filter_sql}
         GROUP BY resource_id, metric_name, observation_date
@@ -504,21 +503,20 @@ def fetch_storage_account_utilization_data(
     resource_dim AS (
         SELECT DISTINCT ON (LOWER(resource_id))
             LOWER(resource_id) AS resource_id,
-            resource_name AS storage_account_name,
+            storage_account_name,
             resourceregion AS region,
             kind,
             sku,
             access_tier
-        FROM {schema_name}.silver_azure_metrics
-        WHERE resource_type = 'storage'
-            AND resource_id IS NOT NULL
+        FROM {schema_name}.gold_azure_fact_storage_metrics
+        WHERE resource_id IS NOT NULL
             -- Only include main storage accounts, exclude subservices
             AND LOWER(resource_id) NOT LIKE '%%/blobservices/%%'
             AND LOWER(resource_id) NOT LIKE '%%/fileservices/%%'
             AND LOWER(resource_id) NOT LIKE '%%/queueservices/%%'
             AND LOWER(resource_id) NOT LIKE '%%/tableservices/%%'
             {resource_filter_dim.replace('WHERE', 'AND') if resource_filter_dim else ''}
-        ORDER BY LOWER(resource_id), processed_at DESC
+        ORDER BY LOWER(resource_id), timestamp DESC
     )
 
     SELECT
@@ -848,11 +846,10 @@ def fetch_public_ip_utilization_data(
                 LOWER(resource_id) AS resource_id,
                 metric_name,
                 observation_date::date AS observation_date,
-                AVG(metric_value) AS daily_value_avg,
-                MAX(metric_value) AS daily_value_max
-            FROM {schema_name}.silver_azure_metrics
-            WHERE resource_type = 'publicip'
-            AND observation_date IS NOT NULL
+                AVG(value) AS daily_value_avg,
+                MAX(value) AS daily_value_max
+            FROM {schema_name}.gold_azure_fact_publicip_metrics
+            WHERE observation_date IS NOT NULL
             AND observation_date::date BETWEEN %(start_date)s::date AND %(end_date)s::date
             {resource_filter_sql}
             GROUP BY resource_id, metric_name, observation_date
@@ -935,18 +932,17 @@ def fetch_public_ip_utilization_data(
         resource_dim AS (
             SELECT DISTINCT ON (LOWER(resource_id))
                 LOWER(resource_id) AS resource_id,
-                resource_name AS public_ip_name,
+                public_ip_name,
                 resourceregion AS region,
                 ip_address,
                 ip_version,
                 sku,
                 tier,
                 allocation_method
-            FROM {schema_name}.silver_azure_metrics
-            WHERE resource_type = 'publicip'
-                AND resource_id IS NOT NULL
+            FROM {schema_name}.gold_azure_fact_publicip_metrics
+            WHERE resource_id IS NOT NULL
                 {resource_filter_dim.replace('WHERE', 'AND') if resource_filter_dim else ''}
-            ORDER BY LOWER(resource_id), processed_at DESC
+            ORDER BY LOWER(resource_id), timestamp DESC
         )
 
         SELECT
